@@ -14,7 +14,23 @@
     '',
   ].join('\n');
 
-  const samePath = (a, b) => !!a && !!b && a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
+  /** Φόρμα σχολίων με την οποία ξεκινά κάθε νέο αρχείο (η ημερομηνία συμπληρώνεται αυτόματα). */
+  const HEADER_LINE = '#'.repeat(59);
+  const HEADER_CURSOR_LINE = 3;   // η γραμμή «Άσκηση:», όπου πηγαίνει ο κέρσορας
+  function newFileHeader() {
+    const d = new Date();
+    return [
+      HEADER_LINE,
+      `# Ημερομηνία: ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`,
+      '# Άσκηση: ',
+      '# Ονοματεπώνυμο: ',
+      HEADER_LINE,
+      '',
+      '',
+    ].join('\n');
+  }
+
+  const samePath =(a, b) => !!a && !!b && a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
   const baseName = (p) => p.split(/[\\/]/).pop();
 
   const App = {
@@ -85,7 +101,8 @@
       }
       if (!this.tabs.length) {
         const first = !(this.settings.recentFiles || []).length;
-        this.addTab({ content: first ? STARTER : '' }, true);
+        this.addTab({ content: newFileHeader() + (first ? STARTER : '') }, true);
+        this.cursorToHeader();
       }
       const act = this.tabs.find((t) => samePath(t.path, this.settings.activeFile)) || this.tabs[0];
       this.activate(act);
@@ -202,7 +219,7 @@
       const i = this.tabs.indexOf(tab);
       this.tabs.splice(i, 1);
       if (this.marks.model === tab.model) this.marks.clear();
-      if (!this.tabs.length) this.addTab({ content: '' }, false);
+      if (!this.tabs.length) this.addTab({ content: newFileHeader() }, false);
       if (this.active === tab) {
         this.active = null;
         this.activate(this.tabs[Math.min(i, this.tabs.length - 1)]);
@@ -257,7 +274,18 @@
     },
 
     // ================================================================ αρχεία
-    newFile() { this.addTab({ content: '' }, true); },
+    newFile() {
+      this.addTab({ content: newFileHeader() }, true);
+      this.cursorToHeader();
+    },
+
+    /** Ο κέρσορας στο τέλος της γραμμής «Άσκηση:» της φόρμας. */
+    cursorToHeader() {
+      const model = this.editor.getModel();
+      if (!model || model.getLineContent(HEADER_CURSOR_LINE) !== '# Άσκηση: ') return;
+      this.editor.setPosition({ lineNumber: HEADER_CURSOR_LINE, column: model.getLineMaxColumn(HEADER_CURSOR_LINE) });
+      this.editor.focus();
+    },
 
     async open() {
       const files = await api.file.open();
@@ -268,8 +296,8 @@
       const existing = this.tabForFile(f.path);
       if (existing) { this.activate(existing); return existing; }
       // αντικατάσταση μιας άδειας, ανέγγιχτης καρτέλας «χωρίς τίτλο»
-      const blank = this.tabs.length === 1 && !this.tabs[0].path && !this.isDirty(this.tabs[0]) &&
-        !this.tabs[0].model.getValue().trim() ? this.tabs[0] : null;
+      // (περιέχει μόνο τη φόρμα σχολίων που μπήκε αυτόματα)
+      const blank = this.tabs.length === 1 && !this.tabs[0].path && !this.isDirty(this.tabs[0]) ? this.tabs[0] : null;
       const tab = this.addTab({ path: f.path, content: f.content }, true);
       if (blank) this.closeTab(blank);
       return tab;
