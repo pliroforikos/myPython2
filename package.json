@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Φιλικό περιβάλλον προγραμματισμού Python 2.7 για μαθητές ΕΠΑΛ (τύπου Thonny)",
   "main": "src/main/main.js",
-  "author": "Prokopis (pliroforikos)",
+  "author": "Λέων Προκόπης, καθηγητής Πληροφορικής ΠΕ86",
   "license": "CC-BY-NC-SA-4.0",
   "scripts": {
     "start": "electron .",
