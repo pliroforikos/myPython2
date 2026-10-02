@@ -1,0 +1,70 @@
+{
+  "name": "python2-epal",
+  "productName": "Python 2.7 ΕΠΑΛ",
+  "version": "1.0.0",
+  "description": "Φιλικό περιβάλλον προγραμματισμού Python 2.7 για μαθητές ΕΠΑΛ (τύπου Thonny)",
+  "main": "src/main/main.js",
+  "author": "Prokopis (pliroforikos)",
+  "license": "CC-BY-NC-SA-4.0",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"tests/*.test.js\" && C:/Python27/python.exe -m unittest discover -s tests -p \"test_*.py\"",
+    "dist": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "gr.epal.python2",
+    "productName": "Python2-EPAL",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "backend/**/*.py",
+      "examples/**/*.py",
+      "package.json",
+      "node_modules/monaco-editor/min/**/*"
+    ],
+    "asarUnpack": [
+      "backend/**/*",
+      "examples/**/*"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "py",
+        "name": "Python 2 πρόγραμμα",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Python2-EPAL-${version}-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "Python2-EPAL-${version}-setup.exe",
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Python 2.7 ΕΠΑΛ"
+    }
+  },
+  "dependencies": {
+    "monaco-editor": "^0.52.2"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pliroforikos/myPython2.git"
+  },
+  "homepage": "https://github.com/pliroforikos/myPython2"
+}

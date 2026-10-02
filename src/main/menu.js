@@ -1,0 +1,114 @@
+'use strict';
+const { Menu, app } = require('electron');
+const path = require('path');
+
+/**
+ * Ελληνικό μενού. Οι εντολές του editor (αναίρεση, εύρεση κ.λπ.) δεν δεσμεύουν
+ * πλήκτρα (registerAccelerator: false), ώστε να τα χειρίζεται ο ίδιος ο Monaco.
+ */
+function buildMenu({ send, settings, examples, recent, openRecent }) {
+  const cmd = (id, label, accelerator, extra = {}) => ({
+    label, ...(accelerator ? { accelerator } : {}), click: () => send(id), ...extra,
+  });
+  const local = (id, label, accelerator) => cmd(id, label, accelerator, { registerAccelerator: false });
+
+  const template = [
+    {
+      label: '&Αρχείο',
+      submenu: [
+        cmd('new', 'Νέο', 'CmdOrCtrl+N'),
+        cmd('open', 'Άνοιγμα…', 'CmdOrCtrl+O'),
+        {
+          label: 'Πρόσφατα αρχεία',
+          submenu: recent.length
+            ? recent.map((p) => ({ label: p, click: () => openRecent(p) }))
+            : [{ label: '(κανένα)', enabled: false }],
+        },
+        { type: 'separator' },
+        cmd('save', 'Αποθήκευση', 'CmdOrCtrl+S'),
+        cmd('saveAs', 'Αποθήκευση ως…', 'CmdOrCtrl+Shift+S'),
+        cmd('closeTab', 'Κλείσιμο καρτέλας', 'CmdOrCtrl+W'),
+        { type: 'separator' },
+        cmd('settings', 'Ρυθμίσεις…', 'CmdOrCtrl+,'),
+        { type: 'separator' },
+        { label: 'Έξοδος', role: 'quit' },
+      ],
+    },
+    {
+      label: '&Επεξεργασία',
+      submenu: [
+        local('undo', 'Αναίρεση', 'CmdOrCtrl+Z'),
+        local('redo', 'Ακύρωση αναίρεσης', 'CmdOrCtrl+Y'),
+        { type: 'separator' },
+        { label: 'Αποκοπή', role: 'cut' },
+        { label: 'Αντιγραφή', role: 'copy' },
+        { label: 'Επικόλληση', role: 'paste' },
+        local('selectAll', 'Επιλογή όλων', 'CmdOrCtrl+A'),
+        { type: 'separator' },
+        local('find', 'Εύρεση…', 'CmdOrCtrl+F'),
+        local('replace', 'Αντικατάσταση…', 'CmdOrCtrl+H'),
+        local('gotoLine', 'Μετάβαση σε γραμμή…', 'CmdOrCtrl+G'),
+        { type: 'separator' },
+        local('toggleComment', 'Σχόλιο / αποσχολιασμός', 'CmdOrCtrl+/'),
+        local('indent', 'Αύξηση εσοχής', 'Tab'),
+        local('outdent', 'Μείωση εσοχής', 'Shift+Tab'),
+        local('fixQuotes', 'Διόρθωση εισαγωγικών από PDF/Word', ''),
+      ],
+    },
+    {
+      label: '&Προβολή',
+      submenu: [
+        cmd('toggleVariables', 'Μεταβλητές', 'F6', { type: 'checkbox', checked: settings.showVariables }),
+        cmd('toggleAssistant', 'Βοηθός', 'F7', { type: 'checkbox', checked: settings.showAssistant }),
+        { type: 'separator' },
+        cmd('zoomIn', 'Μεγαλύτερα γράμματα', 'CmdOrCtrl+='),
+        cmd('zoomOut', 'Μικρότερα γράμματα', 'CmdOrCtrl+-'),
+        cmd('zoomReset', 'Κανονικό μέγεθος', 'CmdOrCtrl+0'),
+        { type: 'separator' },
+        cmd('toggleTheme', 'Σκοτεινό θέμα', '', { type: 'checkbox', checked: settings.theme === 'dark' }),
+        cmd('toggleMinimap', 'Μικρογραφία κώδικα (minimap)', '', { type: 'checkbox', checked: settings.minimap }),
+        cmd('toggleWrap', 'Αναδίπλωση μεγάλων γραμμών', 'Alt+Z', { type: 'checkbox', checked: settings.wordWrap }),
+        cmd('toggleWhitespace', 'Εμφάνιση κενών', '', { type: 'checkbox', checked: settings.showWhitespace }),
+        { type: 'separator' },
+        { label: 'Εργαλεία προγραμματιστή', role: 'toggleDevTools', accelerator: 'CmdOrCtrl+Shift+I' },
+      ],
+    },
+    {
+      label: 'Ε&κτέλεση',
+      submenu: [
+        cmd('run', 'Εκτέλεση προγράμματος', 'F5'),
+        cmd('stop', 'Διακοπή / Επανεκκίνηση', 'CmdOrCtrl+F2'),
+        { type: 'separator' },
+        cmd('clearShell', 'Καθαρισμός Shell', ''),
+        { type: 'separator' },
+        {
+          label: 'Κωδικοποίηση ελληνικών κατά την εκτέλεση',
+          submenu: [
+            cmd('encoding:cp1253', 'cp1253 (όπως το IDLE, len(\'Αθήνα\') = 5)', '',
+              { type: 'radio', checked: settings.stringEncoding === 'cp1253' }),
+            cmd('encoding:utf-8', 'utf-8 (len(\'Αθήνα\') = 10)', '',
+              { type: 'radio', checked: settings.stringEncoding === 'utf-8' }),
+          ],
+        },
+      ],
+    },
+    {
+      label: 'Παρα&δείγματα',
+      submenu: examples.length
+        ? examples.map((ex) => ({ label: ex.title, click: () => send('example', ex.file) }))
+        : [{ label: '(κανένα)', enabled: false }],
+    },
+    {
+      label: '&Βοήθεια',
+      submenu: [
+        cmd('help', 'Οδηγός χρήσης', 'F1'),
+        cmd('shortcuts', 'Συντομεύσεις πληκτρολογίου', ''),
+        { type: 'separator' },
+        cmd('about', `Σχετικά (έκδοση ${app.getVersion()})`, ''),
+      ],
+    },
+  ];
+  return Menu.buildFromTemplate(template);
+}
+
+module.exports = { buildMenu, examplesDir: path.join(__dirname, '..', '..', 'examples') };
