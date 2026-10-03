@@ -22,6 +22,7 @@
     <div class="spacer"></div>
     <button data-cmd="toggleVariables" title="Μεταβλητές (F6)" class="toggle" id="btn-vars"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 10h16M10 10v9" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Μεταβλητές</span></button>
     <button data-cmd="toggleAssistant" title="Βοηθός (F7)" class="toggle" id="btn-assist"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Βοηθός</span></button>
+    <button data-cmd="toggleRecall" title="Θέλω να θυμηθώ: αλγόριθμοι και εντολές (F8)" class="toggle" id="btn-recall"><svg viewBox="0 0 24 24"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5zM12 6.5v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Θέλω να θυμηθώ</span></button>
     <button data-cmd="help" title="Οδηγός χρήσης (F1)" class="icon-only"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
   </div>
 
@@ -50,6 +51,11 @@
       <section id="assist-panel" class="side-panel">
         <div class="panel-head"><span class="panel-title">Βοηθός</span><span class="spacer"></span><button class="mini close" data-cmd="toggleAssistant" title="Κλείσιμο">×</button></div>
         <div id="assistant" class="panel-body"></div>
+      </section>
+      <div class="splitter h" id="split-recall"></div>
+      <section id="recall-panel" class="side-panel">
+        <div class="panel-head"><span class="panel-title">Θέλω να θυμηθώ</span><span class="spacer"></span><button class="mini close" data-cmd="toggleRecall" title="Κλείσιμο">×</button></div>
+        <div id="recall" class="panel-body"></div>
       </section>
     </aside>
   </div>
@@ -124,6 +130,11 @@
         <p>Δεν χρειάζεται η γραμμή <code># -*- coding: … -*-</code>. Τα ελληνικά δουλεύουν κατευθείαν, όπως στο IDLE των
           ελληνικών Windows (cp1253): <code>len('Αθήνα')</code> → 5. Τα ονόματα μεταβλητών όμως γράφονται μόνο με λατινικούς χαρακτήρες.
           Αν αντιγράψεις κώδικα από PDF, η εντολή <b>Επεξεργασία → Διόρθωση εισαγωγικών</b> διορθώνει τα “έξυπνα” εισαγωγικά.</p>
+        <h3>Θέλω να θυμηθώ</h3>
+        <p>Το κουμπί <b>Θέλω να θυμηθώ</b> (<kbd>F8</kbd>) ανοίγει δεξιά τους βασικούς αλγορίθμους και τις εντολές της ύλης:
+          ανάγνωση τιμών, εμφάνιση, συναρτήσεις, μέγιστο/ελάχιστο, πλήθος, άθροισμα, λίστες, αναζήτηση, ταξινόμηση, αρχεία, κλάσεις κ.ά.
+          Γράψε μια λέξη στην αναζήτηση για να βρεις γρήγορα ένα θέμα. Το <b>Στον editor</b> βάζει το παράδειγμα στη θέση του κέρσορα.
+          Το σήμα <b>Π</b> δείχνει ότι το θέμα έχει ζητηθεί στις Πανελλήνιες των ΕΠΑΛ.</p>
         <h3>Αρχεία</h3>
         <p>Τα αρχεία που ανοίγει το πρόγραμμά σου με <code>open('dedomena.txt')</code> ή οι βάσεις <code>sqlite3.connect('vasi.db')</code>
           βρίσκονται <b>στον ίδιο φάκελο με το πρόγραμμα</b>. Τα νέα προγράμματα αποθηκεύονται από προεπιλογή στο <code>Έγγραφα\Python2</code>.</p>
@@ -136,7 +147,7 @@
           <tr><td><kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd></td><td>Μετακίνηση γραμμής</td><td><kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>↓</kbd></td><td>Αντιγραφή γραμμής</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Επιλογή επόμενης ίδιας λέξης</td><td><kbd>Alt</kbd>+κλικ</td><td>Πολλαπλοί κέρσορες</td></tr>
           <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>Εσοχή / αφαίρεση εσοχής</td><td><kbd>Ctrl</kbd>+<kbd>G</kbd></td><td>Μετάβαση σε γραμμή</td></tr>
-          <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd></td><td>Μέγεθος γραμμάτων</td><td><kbd>F6</kbd> / <kbd>F7</kbd></td><td>Μεταβλητές / Βοηθός</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>−</kbd></td><td>Μέγεθος γραμμάτων</td><td><kbd>F6</kbd> / <kbd>F7</kbd> / <kbd>F8</kbd></td><td>Μεταβλητές / Βοηθός / Θέλω να θυμηθώ</td></tr>
         </table>
       </div>
       <div class="buttons"><button value="ok" class="primary">Εντάξει</button></div>
@@ -165,6 +176,7 @@
   <script src="editor.js"></script>
   <script src="shell.js"></script>
   <script src="panels.js"></script>
+  <script src="recall.js"></script>
   <script src="app.js"></script>
   <script>
     require.config({ paths: { vs: '../../node_modules/monaco-editor/min/vs' } });

@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
     showInFolder: (p) => ipcRenderer.invoke('file:showInFolder', p),
   },
   openExample: (file) => ipcRenderer.invoke('example:open', file),
+  recall: () => ipcRenderer.invoke('recall:get'),
   dialog: {
     unsaved: (names) => ipcRenderer.invoke('dialog:unsaved', names),
     message: (opts) => ipcRenderer.invoke('dialog:message', opts),

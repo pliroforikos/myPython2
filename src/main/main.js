@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS = {
   showWhitespace: false,
   showVariables: true,
   showAssistant: true,
+  showRecall: false,
   liveCheck: true,
   openFiles: [],
   activeFile: null,
@@ -216,11 +217,12 @@ ipcMain.handle('settings:set', (_e, patch) => {
   const pythonChanged = patch.pythonPath !== undefined && patch.pythonPath !== settings.pythonPath;
   settings = { ...settings, ...patch };
   saveSettings();
-  if (['theme', 'minimap', 'wordWrap', 'showWhitespace', 'showVariables', 'showAssistant', 'stringEncoding']
+  if (['theme', 'minimap', 'wordWrap', 'showWhitespace', 'showVariables', 'showAssistant', 'showRecall', 'stringEncoding']
     .some((k) => k in patch)) refreshMenu();
   if (pythonChanged) checker.reset();
   return settings;
 });
+ipcMain.handle('recall:get', () => fs.readFileSync(path.join(__dirname, '..', 'renderer', 'recall.md'), 'utf-8'));
 ipcMain.handle('python:info', () => pythonVersion(settings.pythonPath).then((v) => ({ ...v, path: settings.pythonPath })));
 ipcMain.handle('python:test', (_e, p) => pythonVersion(p));
 

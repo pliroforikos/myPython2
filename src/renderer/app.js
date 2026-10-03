@@ -81,6 +81,11 @@
           if (tab) { this.activate(tab); this.reveal(line); }
         },
       });
+      this.recall = new root.Recall.RecallView($('#recall'), {
+        load: () => api.recall(),
+        colorize: (code) => monaco.editor.colorize(code, ES().LANG, { tabSize: 4 }),
+        onInsert: (code) => this.insertSnippet(code),
+      });
 
       this.applyLayout();
       this.applyFont();
@@ -550,6 +555,7 @@
         case 'toggleWhitespace': this.updateSettings({ showWhitespace: !this.settings.showWhitespace }); break;
         case 'toggleVariables': this.updateSettings({ showVariables: !this.settings.showVariables }); break;
         case 'toggleAssistant': this.updateSettings({ showAssistant: !this.settings.showAssistant }); break;
+        case 'toggleRecall': this.updateSettings({ showRecall: !this.settings.showRecall }); break;
         case 'encoding:cp1253': case 'encoding:utf-8': this.setEncoding(id.split(':')[1]); break;
         case 'example': { const r = await api.openExample(arg); if (r && !r.error) this.openLoaded(r); break; }
         case 'settings': this.openSettings(); break;
@@ -574,6 +580,38 @@
       this.editor.pushUndoStop();
       this.editor.executeEdits('fixQuotes', [{ range: model.getFullModelRange(), text: fixed }]);
       this.editor.pushUndoStop();
+    },
+
+    /** Κώδικας από το «Θέλω να θυμηθώ» στη θέση του κέρσορα, με την εσοχή της γραμμής. */
+    insertSnippet(code) {
+      const ed = this.editor;
+      const model = ed.getModel();
+      if (!model) return;
+      const sel = ed.getSelection();
+      const pos = sel.getStartPosition();
+      const line = model.getLineContent(pos.lineNumber);
+      const before = line.slice(0, pos.column - 1);
+      const atIndent = !before.trim();
+      const indent = atIndent ? before : /^\s*/.exec(line)[0];
+      const indented = (first) => code.split('\n').map((l, i) => (i === 0 ? first + l : l ? indent + l : l)).join('\n');
+      let range;
+      let text;
+      if (!sel.isEmpty() || atIndent) {
+        // σε κενό σημείο της γραμμής (ή πάνω σε επιλογή): εκεί που είναι ο κέρσορας
+        range = sel;
+        text = indented('');
+        if (sel.isEmpty() && line.slice(pos.column - 1).trim()) text += '\n' + indent;
+      } else {
+        // η γραμμή έχει ήδη κώδικα: στην επόμενη γραμμή
+        const end = model.getLineMaxColumn(pos.lineNumber);
+        range = new this.monaco.Range(pos.lineNumber, end, pos.lineNumber, end);
+        text = '\n' + indented(indent);
+      }
+      ed.pushUndoStop();
+      ed.executeEdits('recall', [{ range, text, forceMoveMarkers: true }]);
+      ed.pushUndoStop();
+      ed.revealPositionInCenterIfOutsideViewport(ed.getPosition());
+      ed.focus();
     },
 
     async requestClose() {
@@ -606,7 +644,7 @@
       }
       this.editor.updateOptions(ES().editorOptions(this.settings));
       this.monaco.editor.setTheme(this.settings.theme === 'dark' ? 'idle-dark' : 'idle-light');
-      if ('showVariables' in patch || 'showAssistant' in patch) this.applyPanels();
+      if ('showVariables' in patch || 'showAssistant' in patch || 'showRecall' in patch) this.applyPanels();
       if ('fontSize' in patch) this.applyFont();
       if ('liveCheck' in patch) this.tabs.forEach((t) => this.scheduleCheck(t, 10));
     },
@@ -633,8 +671,11 @@
     applyPanels() {
       document.body.classList.toggle('no-vars', !this.settings.showVariables);
       document.body.classList.toggle('no-assist', !this.settings.showAssistant);
+      document.body.classList.toggle('no-recall', !this.settings.showRecall);
       $('#btn-vars').classList.toggle('on', !!this.settings.showVariables);
       $('#btn-assist').classList.toggle('on', !!this.settings.showAssistant);
+      $('#btn-recall').classList.toggle('on', !!this.settings.showRecall);
+      if (this.settings.showRecall) this.recall.show();
       if (this.settings.showAssistant) $('#shell-sub').textContent = '';
     },
 
@@ -694,6 +735,7 @@
       if (L.shell) $('#shell-panel').style.height = `${L.shell}px`;
       if (L.side) $('#side').style.width = `${L.side}px`;
       if (L.vars) $('#vars-panel').style.height = `${L.vars}px`;
+      if (L.recall) $('#recall-panel').style.flexGrow = L.recall / 100;
     },
 
     bindSplitters() {
@@ -736,6 +778,16 @@
         $('#vars-panel').style.height = `${h}px`;
         return h;
       }, 'vars');
+      // Βοηθός / Θέλω να θυμηθώ: μοιράζονται τον χώρο τους με αναλογία (flex-grow, ×100 στις ρυθμίσεις)
+      drag($('#split-recall'), 'h', (e) => {
+        const a = $('#assist-panel').getBoundingClientRect();
+        const r = $('#recall-panel').getBoundingClientRect();
+        const total = a.height + r.height;
+        const h = Math.max(60, Math.min(total - 60, r.bottom - e.clientY));
+        const grow = h / (total - h);
+        $('#recall-panel').style.flexGrow = grow;
+        return grow * 100;
+      }, 'recall');
     },
 
     bindDrop() {

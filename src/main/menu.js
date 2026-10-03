@@ -60,6 +60,7 @@ function buildMenu({ send, settings, examples, recent, openRecent }) {
       submenu: [
         cmd('toggleVariables', 'Μεταβλητές', 'F6', { type: 'checkbox', checked: settings.showVariables }),
         cmd('toggleAssistant', 'Βοηθός', 'F7', { type: 'checkbox', checked: settings.showAssistant }),
+        cmd('toggleRecall', 'Θέλω να θυμηθώ', 'F8', { type: 'checkbox', checked: settings.showRecall }),
         { type: 'separator' },
         cmd('zoomIn', 'Μεγαλύτερα γράμματα', 'CmdOrCtrl+='),
         cmd('zoomOut', 'Μικρότερα γράμματα', 'CmdOrCtrl+-'),
