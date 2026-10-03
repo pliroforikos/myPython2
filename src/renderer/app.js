@@ -195,7 +195,10 @@
         close.addEventListener('click', (e) => { e.stopPropagation(); this.closeTab(tab); });
         el.append(name, close);
         el.addEventListener('mousedown', (e) => {
-          if (e.button === 1) { e.preventDefault(); this.closeTab(tab); } else if (e.button === 0) this.activate(tab);
+          if (e.button === 1) { e.preventDefault(); this.closeTab(tab); return; }
+          // Πάτημα στο ×: όχι ενεργοποίηση εδώ. Η activate() ξαναζωγραφίζει τις καρτέλες
+          // και το × θα αντικαθίστατο πριν ολοκληρωθεί το click του.
+          if (e.button === 0 && !e.target.closest('.close')) this.activate(tab);
         });
         box.appendChild(el);
       }
