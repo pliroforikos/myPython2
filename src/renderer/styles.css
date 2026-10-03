@@ -294,6 +294,25 @@ table.vars tr.changed td { animation: changed 1.8s ease-out; }
 .vval { font-family: 'Cascadia Mono', Consolas, monospace; }
 .vtype { color: var(--muted); font-size: 12px; }
 .vtype-gr { display: block; font-size: 11px; opacity: 0.85; }
+table.vars tr.group td {
+  padding: 10px 8px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  background: var(--bg);
+  cursor: default;
+}
+table.vars tr.group:hover td { background: var(--bg); }
+table.vars tr.fn .vval { color: var(--accent); }
+.vfn-label { margin-top: 6px; color: var(--muted); }
+.vfn-doc { margin-top: 6px; font-style: italic; }
+.vfn-goto {
+  margin-top: 8px; border: 1px solid var(--border); background: var(--bg); border-radius: 6px;
+  padding: 3px 10px; cursor: pointer; font-size: 12.5px; color: var(--accent);
+}
+.vfn-goto:hover { border-color: var(--accent); }
 .vdetail:not(:empty) { margin: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
 .vdetail-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; color: var(--muted); }
 .vdetail-head b { color: var(--fg); font-family: 'Cascadia Mono', Consolas, monospace; }

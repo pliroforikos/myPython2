@@ -20,6 +20,7 @@ import linecache
 import codeop
 import types
 import imp
+import inspect
 import re
 import Queue
 import __builtin__
@@ -485,6 +486,29 @@ def _imported_names(ns):
     return hidden
 
 
+def function_signature(name, func):
+    """Η «υπογραφή» μιας συνάρτησης, π.χ. dequeue(queue) ή f(a, b=1, *args).
+    Αντί για <function dequeue at 0x02D82370>, που δεν λέει κάτι στον μαθητή."""
+    if isinstance(func, types.FunctionType):
+        try:
+            args, varargs, keywords, defaults = inspect.getargspec(func)
+        except TypeError:
+            return u'%s(…)' % U.to_u(name)
+        parts = []
+        first_default = len(args) - len(defaults or ())
+        for i, a in enumerate(args):
+            a = U.to_u(a) if isinstance(a, basestring) else u'(…)'
+            if i >= first_default:
+                a += u'=' + friendly_repr(defaults[i - first_default], 1)
+            parts.append(a)
+        if varargs:
+            parts.append(u'*' + U.to_u(varargs))
+        if keywords:
+            parts.append(u'**' + U.to_u(keywords))
+        return u'%s(%s)' % (U.to_u(name), u', '.join(parts))
+    return u'%s(…)' % U.to_u(name)
+
+
 def describe_globals(ns):
     hidden = _imported_names(ns)
     out = []
@@ -493,6 +517,19 @@ def describe_globals(ns):
             continue
         v = ns[name]
         if isinstance(v, types.ModuleType):
+            continue
+        if isinstance(v, (types.FunctionType, types.BuiltinFunctionType)):
+            # για lambda το όνομα της μεταβλητής, αλλιώς το όνομα του def
+            fname = name if v.__name__ == '<lambda>' else v.__name__
+            item = {'name': U.to_u(name), 'type': type(v).__name__, 'kind': 'function',
+                    'repr': function_signature(fname, v)}
+            code = getattr(v, 'func_code', None)
+            if code is not None and code.co_filename == S.prog_path_b:
+                item['line'] = code.co_firstlineno
+            doc = getattr(v, '__doc__', None)
+            if doc and isinstance(v, types.FunctionType):
+                item['doc'] = U.to_u(doc.strip().split('\n')[0], S.encoding)[:300]
+            out.append(item)
             continue
         item = {'name': U.to_u(name), 'type': type(v).__name__, 'repr': friendly_repr(v)}
         if isinstance(v, (str, unicode, list, tuple, dict, set, frozenset)):

@@ -23,8 +23,10 @@
 
   // ------------------------------------------------------------------ Μεταβλητές
   class VariablesView {
-    constructor(el) {
+    /** handlers: onGoto(line) — μετάβαση στη γραμμή ορισμού μιας συνάρτησης */
+    constructor(el, handlers) {
       this.el = el;
+      this.h = handlers || {};
       this.prev = new Map();
       this.selected = null;
       this.vars = [];
@@ -41,6 +43,17 @@
       this.selected = null;
     }
 
+    _row(v) {
+      const changed = this.prev.size && this.prev.get(v.name) !== v.repr;
+      const fn = v.kind === 'function';
+      const gr = fn ? 'συνάρτηση' : (TYPE_GR[v.type] || '');
+      return `<tr data-name="${esc(v.name)}" class="${fn ? 'fn' : ''} ${changed ? 'changed' : ''} ${this.selected === v.name ? 'selected' : ''}">
+          <td class="vname">${esc(v.name)}</td>
+          <td class="vval" title="${esc(v.repr.slice(0, 800))}">${esc(v.repr)}</td>
+          <td class="vtype" title="${esc(gr)}">${esc(v.type)}${gr ? `<span class="vtype-gr">${esc(gr)}</span>` : ''}</td>
+        </tr>`;
+    }
+
     update(vars) {
       this.vars = vars;
       if (!vars.length) {
@@ -48,19 +61,17 @@
         this.prev = new Map();
         return;
       }
-      const rows = vars.map((v) => {
-        const changed = this.prev.size && this.prev.get(v.name) !== v.repr;
-        const gr = TYPE_GR[v.type] || '';
-        return `<tr data-name="${esc(v.name)}" class="${changed ? 'changed' : ''} ${this.selected === v.name ? 'selected' : ''}">
-          <td class="vname">${esc(v.name)}</td>
-          <td class="vval" title="${esc(v.repr.slice(0, 800))}">${esc(v.repr)}</td>
-          <td class="vtype" title="${esc(gr)}">${esc(v.type)}${gr ? `<span class="vtype-gr">${esc(gr)}</span>` : ''}</td>
-        </tr>`;
-      }).join('');
+      // πρώτα τα δεδομένα, μετά οι συναρτήσεις σε δική τους ομάδα
+      const data = vars.filter((v) => v.kind !== 'function');
+      const funcs = vars.filter((v) => v.kind === 'function');
+      let rows = data.map((v) => this._row(v)).join('');
+      if (funcs.length) {
+        rows += `<tr class="group"><td colspan="3">Συναρτήσεις</td></tr>` + funcs.map((v) => this._row(v)).join('');
+      }
       this.el.innerHTML = `<table class="vars"><thead><tr><th>Όνομα</th><th>Τιμή</th><th>Τύπος</th></tr></thead><tbody>${rows}</tbody></table>
         <div class="vdetail"></div>`;
       this.prev = new Map(vars.map((v) => [v.name, v.repr]));
-      this.el.querySelectorAll('tbody tr').forEach((tr) => {
+      this.el.querySelectorAll('tbody tr[data-name]').forEach((tr) => {
         tr.addEventListener('click', () => {
           this.selected = tr.dataset.name;
           this.el.querySelectorAll('tr.selected').forEach((x) => x.classList.remove('selected'));
@@ -76,6 +87,15 @@
       const v = this.vars.find((x) => x.name === this.selected);
       if (!box) return;
       if (!v) { box.innerHTML = ''; return; }
+      if (v.kind === 'function') {
+        box.innerHTML = `<div class="vdetail-head"><b>${esc(v.name)}</b> <span>συνάρτηση</span></div>
+          <div class="vfn-label">Καλείται έτσι:</div><pre>${esc(v.repr)}</pre>
+          ${v.doc ? `<div class="vfn-doc">${esc(v.doc)}</div>` : ''}
+          ${v.line ? `<button class="vfn-goto" data-line="${v.line}">↪ Ορίζεται στη γραμμή ${v.line}</button>` : ''}`;
+        const btn = box.querySelector('.vfn-goto');
+        if (btn && this.h.onGoto) btn.addEventListener('click', () => this.h.onGoto(Number(btn.dataset.line)));
+        return;
+      }
       const len = v.len != null ? `<span class="vlen">πλήθος στοιχείων: ${v.len}</span>` : '';
       box.innerHTML = `<div class="vdetail-head"><b>${esc(v.name)}</b> <span>${esc(v.type)}${TYPE_GR[v.type] ? ' · ' + esc(TYPE_GR[v.type]) : ''}</span> ${len}</div>
         <pre>${esc(v.repr)}</pre>`;

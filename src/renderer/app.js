@@ -69,7 +69,12 @@
         onInterrupt: () => this.stop(),
         onHelp: () => this.showPanel('assistant', true),
       });
-      this.vars = new root.Panels.VariablesView($('#vars'));
+      this.vars = new root.Panels.VariablesView($('#vars'), {
+        onGoto: (line) => {
+          const tab = this.runTab || this.active;
+          if (tab && !tab.model.isDisposed()) { this.activate(tab); this.reveal(line); }
+        },
+      });
       this.assistant = new root.Panels.AssistantView($('#assistant'), {
         onGoto: (line, err) => {
           const tab = (err && this.tabForFile(err.location && err.location.filename)) || this.runTab || this.active;

@@ -204,6 +204,21 @@ class RunnerTest(unittest.TestCase):
         g = self.s.last_globals()
         self.assertEqual(sorted(g), ['embadon', 'r'])
 
+    def test_functions_show_signature(self):
+        self.run_code(u"def dequeue(queue):\n    '''Εξαγωγή από ουρά'''\n    return queue.pop(0)\n\n"
+                      u"def f(a, b=1, *args, **kw):\n    pass\n\ndiplo = lambda x: 2 * x\n"
+                      u"from math import sqrt\noura = []\n")
+        g = self.s.last_globals()
+        self.assertEqual(g['dequeue']['repr'], u'dequeue(queue)')
+        self.assertEqual(g['dequeue']['kind'], 'function')
+        self.assertEqual(g['dequeue']['line'], 1)
+        self.assertEqual(g['dequeue']['doc'], u'Εξαγωγή από ουρά')
+        self.assertEqual(g['f']['repr'], u'f(a, b=1, *args, **kw)')
+        self.assertEqual(g['f']['line'], 5)
+        self.assertEqual(g['diplo']['repr'], u'diplo(x)')
+        self.assertEqual(g['sqrt']['repr'], u'sqrt(…)')
+        self.assertNotIn('kind', g['oura'])
+
     def test_sys_exit_is_clean(self):
         self.run_code(u"import sys\nprint 1\nsys.exit()\nprint 2\n")
         self.assertEqual(self.s.output(), u'1\n')
