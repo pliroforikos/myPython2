@@ -229,6 +229,81 @@ class RunnerTest(unittest.TestCase):
         self.run_code(u"import os\nos.system('echo hi')\nprint 'after'\n")
         self.assertIn(u'after', self.s.output())
 
+    def test_output_rate_is_limited_but_complete(self):
+        # 500.000 χαρακτήρες: τα πρώτα 200.000 περνούν αμέσως, τα υπόλοιπα με ~200.000/s
+        import time
+        start = time.time()
+        self.run_code(u"for i in range(5000):\n    print 'x' * 99\n")
+        elapsed = time.time() - start
+        self.assertEqual(len(self.s.output()), 500000)
+        self.assertGreater(elapsed, 1.0)
+
+    # --- εκτέλεση βήμα-βήμα ---------------------------------------------------
+    def start_traced(self, source, mode='step', delay=0):
+        path = os.path.join(self.tmp, 'prog.py').decode(sys.getfilesystemencoding())
+        self.s.send(cmd='run', path=path, source=source, encoding='cp1253',
+                    trace={'mode': mode, 'delay': delay})
+
+    def next_of(self, *types):
+        while True:
+            msg = self.s.read()
+            if msg['type'] in types:
+                return msg
+
+    def test_step_by_step(self):
+        self.start_traced(u"s = 0\nfor i in range(2):\n    s = s + i\nprint 'τέλος', s\n")
+        lines = []
+        while True:
+            msg = self.next_of('step', 'prompt')
+            if msg['type'] == 'prompt':
+                break
+            lines.append(msg['line'])
+            self.s.send(cmd='step')
+        self.assertEqual(lines, [1, 2, 3, 2, 3, 2, 4])
+        self.assertIn(u'τέλος 1', self.s.output())
+
+    def test_step_waits_for_next(self):
+        self.start_traced(u"x = 1\nx = 2\n")
+        self.assertEqual(self.next_of('step')['line'], 1)
+        # χωρίς «Επόμενη» δεν προχωρά: η επόμενη γραμμή δεν έχει σταλεί
+        self.s.send(cmd='globals')
+        self.s.send(cmd='step')
+        msg = self.next_of('step')
+        self.assertEqual(msg['line'], 2)
+        self.assertEqual([v['repr'] for v in msg['vars'] if v['name'] == 'x'], [u'1'])
+
+    def test_step_shows_function_locals(self):
+        self.start_traced(u"def f(a):\n    b = a * 2\n    return b\ny = f(5)\n", mode='auto')
+        steps = []
+        while True:
+            msg = self.next_of('step', 'prompt')
+            if msg['type'] == 'prompt':
+                break
+            steps.append(msg)
+        inside = [m for m in steps if m.get('func') == u'f']
+        self.assertEqual([m['line'] for m in inside], [2, 3])
+        self.assertEqual(dict((v['name'], v['repr']) for v in inside[-1]['locals']),
+                         {u'a': u'5', u'b': u'10'})
+        self.assertEqual(self.s.last_globals()['y']['repr'], u'10')
+
+    def test_trace_mode_can_change_while_running(self):
+        self.start_traced(u"for i in range(100):\n    pass\nprint 'ok'\n")
+        self.assertEqual(self.next_of('step')['line'], 1)
+        self.s.send(cmd='trace', mode='off')
+        self.next_of('prompt')
+        self.assertEqual(len([m for m in self.s.messages if m['type'] == 'step']), 1)
+        self.assertIn(u'ok', self.s.output())
+
+    def test_step_with_input(self):
+        self.start_traced(u"x = raw_input('Όνομα: ')\nprint 'Γεια', x\n", mode='auto')
+        while True:
+            msg = self.next_of('input_request', 'prompt')
+            if msg['type'] == 'prompt':
+                break
+            self.s.send(cmd='input', text=u'Άννα')
+        self.assertEqual([m['line'] for m in self.s.messages if m['type'] == 'step'], [1, 2])
+        self.assertIn(u'Γεια Άννα', self.s.output())
+
 
 class CheckerTest(unittest.TestCase):
     def setUp(self):

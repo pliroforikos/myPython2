@@ -9,7 +9,9 @@
            {"cmd":"input", "text"}      απάντηση σε raw_input/input
            {"cmd":"repl", "line"}       γραμμή του Shell (>>>)
            {"cmd":"globals"}
-Μηνύματα:  ready, started, out, input_request, error, done, globals, prompt
+           {"cmd":"trace", "mode", "delay"}  εκτέλεση βήμα-βήμα: mode step | auto | off
+           {"cmd":"step"}               «Επόμενη γραμμή» (όταν mode = step)
+Μηνύματα:  ready, started, out, input_request, error, done, globals, prompt, step
 """
 import os
 import sys
@@ -22,6 +24,7 @@ import types
 import imp
 import inspect
 import re
+import time
 import Queue
 import __builtin__
 
@@ -76,11 +79,18 @@ S = _State()
 class _OutputBuffer(object):
     """Συγκεντρώνει την έξοδο και τη στέλνει ανά ~30ms ή όταν χρειάζεται."""
 
+    # Ρυθμός εξόδου προς το IDE: έως RATE χαρακτήρες/δευτερόλεπτο, με «απόθεμα» BURST για
+    # σύντομες εκρήξεις. Ένα ατέρμονο print έστελνε ~8 MB/s και η εφαρμογή «κολλούσε».
+    RATE = 200000.0
+    BURST = 200000.0
+
     def __init__(self):
         self.lock = threading.Lock()
         self.flush_lock = threading.RLock()
         self.items = []
         self.size = 0
+        self.budget = self.BURST
+        self.last = time.time()
 
     def add(self, stream, text):
         with self.lock:
@@ -90,8 +100,16 @@ class _OutputBuffer(object):
                 self.items.append((stream, [text]))
             self.size += len(text)
             big = self.size > 32768
+            now = time.time()
+            self.budget = min(self.BURST, self.budget + (now - self.last) * self.RATE) - len(text)
+            self.budget = max(self.budget, -self.RATE)    # το πολύ 1 δευτερόλεπτο «χρέος»
+            self.last = now
+            delay = -self.budget / self.RATE if self.budget < 0 else 0
         if big:
             self.flush()
+        if delay:
+            # το πρόγραμμα του μαθητή περιμένει λίγο (μόνο όταν τυπώνει υπερβολικά πολλά)
+            time.sleep(min(delay, 1.0))
 
     def flush(self):
         with self.flush_lock:
@@ -110,7 +128,6 @@ def send(msg):
 
 
 def _flusher():
-    import time
     while True:
         time.sleep(0.03)
         try:
@@ -167,9 +184,14 @@ def _reader():
         if not line:
             continue
         try:
-            _cmd_queue.put(json.loads(line))
+            msg = json.loads(line)
         except ValueError:
-            pass
+            continue
+        # οι εντολές του βήμα-βήμα ισχύουν αμέσως, ακόμα και όσο το πρόγραμμα περιμένει
+        if msg.get('cmd') in ('trace', 'step'):
+            TRACE.command(msg)
+        else:
+            _cmd_queue.put(msg)
 
 
 def _pump_tk():
@@ -545,6 +567,75 @@ def send_globals(ns):
         send({'type': 'globals', 'vars': []})
 
 
+# --- Εκτέλεση βήμα-βήμα ----------------------------------------------------
+class _Trace(object):
+    """Η εκτέλεση βήμα-βήμα. Οι ρυθμίσεις αλλάζουν από το νήμα _reader ενώ τρέχει
+    το πρόγραμμα (π.χ. ο μαθητής περνά από «Αργή» σε «Γραμμή γραμμή»)."""
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.mode = 'off'       # off | step | auto
+        self.delay = 0.0        # δευτερόλεπτα ανά γραμμή (mode = auto)
+        self.steps = 0          # πατήματα «Επόμενη» που δεν έχουν καταναλωθεί
+
+    def command(self, msg):
+        with self.cond:
+            if msg.get('cmd') == 'step':
+                self.steps += 1
+            else:
+                self.mode = msg.get('mode') or 'off'
+                self.delay = max(0.0, float(msg.get('delay') or 0) / 1000.0)
+                self.steps = 0
+            self.cond.notify_all()
+
+    def pause(self):
+        """Περιμένει πριν από την επόμενη γραμμή, ανάλογα με την ταχύτητα."""
+        start = time.time()
+        with self.cond:
+            while True:
+                if self.mode == 'step':
+                    if self.steps > 0:
+                        self.steps -= 1
+                        return
+                    self.cond.wait(0.1)
+                elif self.mode == 'auto':
+                    left = self.delay - (time.time() - start)
+                    if left <= 0:
+                        return
+                    self.cond.wait(min(left, 0.1))
+                else:
+                    return
+
+
+TRACE = _Trace()
+
+
+def _send_step(frame):
+    g = frame.f_globals
+    msg = {'type': 'step', 'line': frame.f_lineno, 'vars': describe_globals(g)}
+    if frame.f_code.co_name != '<module>' and frame.f_locals is not g:
+        msg['func'] = U.to_u(frame.f_code.co_name)
+        msg['locals'] = describe_globals(frame.f_locals)
+    send(msg)
+
+
+def _local_trace(frame, event, arg):
+    if event == 'line' and TRACE.mode != 'off':
+        try:
+            _send_step(frame)
+        except Exception:
+            pass
+        TRACE.pause()
+    return _local_trace
+
+
+def _global_trace(frame, event, arg):
+    # μόνο οι γραμμές του προγράμματος του μαθητή, όχι οι βιβλιοθήκες
+    if event == 'call' and frame.f_code.co_filename == S.prog_path_b:
+        return _local_trace
+    return None
+
+
 # --- Εκτέλεση ---------------------------------------------------------------
 def make_namespace(path_b):
     ns = {'__name__': '__main__', '__builtins__': __builtin__, '__doc__': None}
@@ -587,7 +678,11 @@ def run_program(msg):
     except (SyntaxError, TypeError, ValueError, OverflowError):
         report_exception('compile', text)
         code = None
+    trace = msg.get('trace')
     if code is not None:
+        if trace and trace.get('mode', 'off') != 'off':
+            TRACE.command(dict(trace, cmd='trace'))
+            sys.settrace(_global_trace)
         try:
             exec code in ns
             ok = True
@@ -600,6 +695,8 @@ def run_program(msg):
                     OUTPUT.add('stderr', U.to_u(e.code, S.encoding) + u'\n')
         except BaseException:
             report_exception('run', text)
+        finally:
+            sys.settrace(None)
     _pump_tk()
     send({'type': 'done', 'ok': ok})
     send_globals(ns)

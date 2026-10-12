@@ -9,12 +9,21 @@
 </head>
 <body class="theme-light">
   <div id="toolbar" role="toolbar">
-    <button data-cmd="new" title="Νέο πρόγραμμα (Ctrl+N)"><svg viewBox="0 0 24 24"><path d="M6 2h8l6 6v14H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 2v6h6M13 12v6M10 15h6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Νέο</span></button>
-    <button data-cmd="open" title="Άνοιγμα (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Άνοιγμα</span></button>
-    <button data-cmd="save" title="Αποθήκευση (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M4 4h13l3 3v13H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 4v5h7V4M7 20v-6h10v6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Αποθήκευση</span></button>
+    <button data-cmd="new" class="file" title="Νέο πρόγραμμα (Ctrl+N)"><svg viewBox="0 0 24 24"><path d="M6 2h8l6 6v14H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 2v6h6M13 12v6M10 15h6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Νέο</span></button>
+    <button data-cmd="open" class="file" title="Άνοιγμα (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Άνοιγμα</span></button>
+    <button data-cmd="save" class="file" title="Αποθήκευση (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M4 4h13l3 3v13H4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 4v5h7V4M7 20v-6h10v6" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Αποθήκευση</span></button>
     <div class="sep"></div>
     <button data-cmd="run" class="run" title="Εκτέλεση προγράμματος (F5)"><svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z" fill="currentColor"/></svg><span>Εκτέλεση</span></button>
     <button data-cmd="stop" class="stop" title="Διακοπή / Επανεκκίνηση (Ctrl+F2)"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/></svg><span>Διακοπή</span></button>
+    <div class="speed" title="Ταχύτητα εκτέλεσης. Με «Γραμμή γραμμή», «Αργή» και «Μέτρια» φαίνεται στον editor ποια γραμμή εκτελείται και στις Μεταβλητές πώς αλλάζουν οι τιμές.">
+      <svg viewBox="0 0 24 24"><path d="M3.5 17a8.5 8.5 0 1 1 17 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 17l4.5-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <div class="speed-slider">
+        <div class="speed-ticks"><i></i><i></i><i></i><i></i></div>
+        <input type="range" id="speed" min="0" max="3" step="1" aria-label="Ταχύτητα εκτέλεσης">
+      </div>
+      <span id="speed-label"></span>
+    </div>
+    <button data-cmd="step" id="btn-step" class="step" title="Εκτέλεση της επόμενης γραμμής (F10)" disabled><svg viewBox="0 0 24 24"><path d="M5 5l9 7-9 7z" fill="currentColor"/><rect x="16" y="5" width="2.6" height="14" rx="1" fill="currentColor"/></svg><span>Επόμενη</span></button>
     <div class="sep"></div>
     <button data-cmd="zoomOut" title="Μικρότερα γράμματα (Ctrl -)" class="icon-only"><span class="txt">A−</span></button>
     <button data-cmd="zoomIn" title="Μεγαλύτερα γράμματα (Ctrl +)" class="icon-only"><span class="txt big">A+</span></button>
@@ -73,7 +82,7 @@
   <dialog id="dlg-settings">
     <form method="dialog">
       <h2>Ρυθμίσεις</h2>
-      <label class="field">Python 2.7 (python.exe)
+      <label class="field">Python 2.7 (python.exe ή python2.7)
         <div class="row">
           <input type="text" id="set-python" spellcheck="false">
           <button type="button" id="set-python-browse">Αναζήτηση…</button>
@@ -100,7 +109,7 @@
       <label class="check"><input type="checkbox" id="set-live"> Έλεγχος σύνταξης καθώς γράφω</label>
       <div class="buttons">
         <button value="cancel">Άκυρο</button>
-        <button value="ok" class="primary" id="set-ok">Αποθήκευση</button>
+        <button value="ok" class="primary">Αποθήκευση</button>
       </div>
     </form>
   </dialog>
@@ -118,6 +127,16 @@
             (<code>raw_input</code>/<code>input</code>), γράψε στο Shell και πάτα <kbd>Enter</kbd>.</li>
           <li>Για να σταματήσεις ένα πρόγραμμα που «κόλλησε» (π.χ. ατέρμονος βρόχος): <b>■ Διακοπή</b> ή <kbd>Ctrl</kbd>+<kbd>F2</kbd>.</li>
         </ol>
+        <h3>Εκτέλεση βήμα-βήμα</h3>
+        <p>Με τον <b>ρυθμιστή ταχύτητας</b> δίπλα στο κουμπί <b>Διακοπή</b> (σύρε τη λαβή ή κάνε κλικ σε ένα σημάδι) διαλέγεις πόσο γρήγορα εκτελείται το πρόγραμμα:</p>
+        <ul>
+          <li><b>Γραμμή γραμμή</b>: το πρόγραμμα σταματά πριν από κάθε γραμμή· προχωράς με το κουμπί <b>Επόμενη</b> ή με <kbd>F10</kbd>.</li>
+          <li><b>Αργή</b> / <b>Μέτρια</b>: το πρόγραμμα προχωρά μόνο του, μία γραμμή κάθε 1 ή 0,4 δευτερόλεπτα.</li>
+          <li><b>Κανονική</b>: κανονική εκτέλεση, χωρίς καθυστέρηση.</li>
+        </ul>
+        <p>Η γραμμή που θα εκτελεστεί <b>τώρα</b> φωτίζεται στον editor με ➜, και στις <b>Μεταβλητές</b> φαίνονται οι τιμές να αλλάζουν
+          (μέσα σε συνάρτηση, και οι τοπικές της μεταβλητές). Η ταχύτητα αλλάζει και ενώ τρέχει το πρόγραμμα: π.χ. από «Γραμμή γραμμή»
+          σε «Κανονική» για να ολοκληρωθεί γρήγορα.</p>
         <h3>Shell (&gt;&gt;&gt;)</h3>
         <p>Μετά την εκτέλεση, στο <code>&gt;&gt;&gt;</code> μπορείς να γράψεις εντολές Python και να δεις αμέσως το αποτέλεσμα.
           Οι μεταβλητές του προγράμματος είναι διαθέσιμες (π.χ. γράψε <code>lista</code> για να δεις την τιμή της).
@@ -137,10 +156,11 @@
           Το σήμα <b>Π</b> δείχνει ότι το θέμα έχει ζητηθεί στις Πανελλήνιες των ΕΠΑΛ.</p>
         <h3>Αρχεία</h3>
         <p>Τα αρχεία που ανοίγει το πρόγραμμά σου με <code>open('dedomena.txt')</code> ή οι βάσεις <code>sqlite3.connect('vasi.db')</code>
-          βρίσκονται <b>στον ίδιο φάκελο με το πρόγραμμα</b>. Τα νέα προγράμματα αποθηκεύονται από προεπιλογή στο <code>Έγγραφα\Python2</code>.</p>
+          βρίσκονται <b>στον ίδιο φάκελο με το πρόγραμμα</b>. Τα νέα προγράμματα αποθηκεύονται από προεπιλογή στον φάκελο <code>Python2</code> μέσα στα <b>Έγγραφα</b>.</p>
         <h3>Συντομεύσεις</h3>
         <table class="keys">
           <tr><td><kbd>F5</kbd></td><td>Εκτέλεση</td><td><kbd>Ctrl</kbd>+<kbd>F2</kbd></td><td>Διακοπή</td></tr>
+          <tr><td><kbd>F10</kbd></td><td>Επόμενη γραμμή (βήμα-βήμα)</td><td></td><td></td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Αποθήκευση</td><td><kbd>Ctrl</kbd>+<kbd>N</kbd> / <kbd>O</kbd></td><td>Νέο / Άνοιγμα</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>/</kbd></td><td>Σχόλιο σε γραμμές</td><td><kbd>Ctrl</kbd>+<kbd>F</kbd> / <kbd>H</kbd></td><td>Εύρεση / Αντικατάσταση</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>Space</kbd></td><td>Προτάσεις (autocomplete)</td><td><kbd>Ctrl</kbd>+<kbd>.</kbd></td><td>Γρήγορη διόρθωση</td></tr>

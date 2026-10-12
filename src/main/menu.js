@@ -6,6 +6,8 @@ const path = require('path');
  * Ελληνικό μενού. Οι εντολές του editor (αναίρεση, εύρεση κ.λπ.) δεν δεσμεύουν
  * πλήκτρα (registerAccelerator: false), ώστε να τα χειρίζεται ο ίδιος ο Monaco.
  */
+const SPEEDS = [['step', 'Γραμμή γραμμή'], ['slow', 'Αργή'], ['medium', 'Μέτρια'], ['normal', 'Κανονική']];
+
 function buildMenu({ send, settings, examples, recent, openRecent }) {
   const cmd = (id, label, accelerator, extra = {}) => ({
     label, ...(accelerator ? { accelerator } : {}), click: () => send(id), ...extra,
@@ -79,6 +81,13 @@ function buildMenu({ send, settings, examples, recent, openRecent }) {
       submenu: [
         cmd('run', 'Εκτέλεση προγράμματος', 'F5'),
         cmd('stop', 'Διακοπή / Επανεκκίνηση', 'CmdOrCtrl+F2'),
+        { type: 'separator' },
+        {
+          label: 'Ταχύτητα εκτέλεσης',
+          submenu: SPEEDS.map(([id, label]) => cmd(`speed:${id}`, label, '',
+            { type: 'radio', checked: (settings.runSpeed || 'normal') === id })),
+        },
+        cmd('step', 'Επόμενη γραμμή (βήμα-βήμα)', 'F10'),
         { type: 'separator' },
         cmd('clearShell', 'Καθαρισμός Shell', ''),
         { type: 'separator' },

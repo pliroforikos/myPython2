@@ -44,33 +44,44 @@
     }
 
     _row(v) {
-      const changed = this.prev.size && this.prev.get(v.name) !== v.repr;
+      const key = v.key || v.name;
+      const changed = this.prev.size && this.prev.get(key) !== v.repr;
       const fn = v.kind === 'function';
       const gr = fn ? 'συνάρτηση' : (TYPE_GR[v.type] || '');
-      return `<tr data-name="${esc(v.name)}" class="${fn ? 'fn' : ''} ${changed ? 'changed' : ''} ${this.selected === v.name ? 'selected' : ''}">
+      return `<tr data-name="${esc(key)}" class="${fn ? 'fn' : ''} ${changed ? 'changed' : ''} ${this.selected === key ? 'selected' : ''}">
           <td class="vname">${esc(v.name)}</td>
           <td class="vval" title="${esc(v.repr.slice(0, 800))}">${esc(v.repr)}</td>
           <td class="vtype" title="${esc(gr)}">${esc(v.type)}${gr ? `<span class="vtype-gr">${esc(gr)}</span>` : ''}</td>
         </tr>`;
     }
 
-    update(vars) {
+    /** locals/func: κατά την εκτέλεση βήμα-βήμα, οι τοπικές μεταβλητές της συνάρτησης που εκτελείται. */
+    update(vars, locals, func) {
+      const loc = (locals || []).map((v) => ({ ...v, key: `local:${v.name}` }));
+      vars = loc.concat(vars);
       this.vars = vars;
       if (!vars.length) {
         this.empty('Δεν υπάρχουν μεταβλητές.');
         this.prev = new Map();
         return;
       }
-      // πρώτα τα δεδομένα, μετά οι συναρτήσεις σε δική τους ομάδα
-      const data = vars.filter((v) => v.kind !== 'function');
-      const funcs = vars.filter((v) => v.kind === 'function');
-      let rows = data.map((v) => this._row(v)).join('');
+      // πρώτα οι τοπικές (βήμα-βήμα), μετά τα δεδομένα, μετά οι συναρτήσεις σε δική τους ομάδα
+      const glob = vars.filter((v) => !v.key);
+      const data = glob.filter((v) => v.kind !== 'function');
+      const funcs = glob.filter((v) => v.kind === 'function');
+      let rows = '';
+      if (locals) {
+        rows += `<tr class="group local"><td colspan="3">Μέσα στη συνάρτηση ${esc(func || '')}()</td></tr>` +
+          (loc.length ? loc.map((v) => this._row(v)).join('') : '<tr class="group"><td colspan="3">(καμία τοπική μεταβλητή)</td></tr>');
+        rows += `<tr class="group"><td colspan="3">Καθολικές μεταβλητές</td></tr>`;
+      }
+      rows += data.map((v) => this._row(v)).join('');
       if (funcs.length) {
         rows += `<tr class="group"><td colspan="3">Συναρτήσεις</td></tr>` + funcs.map((v) => this._row(v)).join('');
       }
       this.el.innerHTML = `<table class="vars"><thead><tr><th>Όνομα</th><th>Τιμή</th><th>Τύπος</th></tr></thead><tbody>${rows}</tbody></table>
         <div class="vdetail"></div>`;
-      this.prev = new Map(vars.map((v) => [v.name, v.repr]));
+      this.prev = new Map(vars.map((v) => [v.key || v.name, v.repr]));
       this.el.querySelectorAll('tbody tr[data-name]').forEach((tr) => {
         tr.addEventListener('click', () => {
           this.selected = tr.dataset.name;
@@ -84,7 +95,7 @@
 
     _detail() {
       const box = this.el.querySelector('.vdetail');
-      const v = this.vars.find((x) => x.name === this.selected);
+      const v = this.vars.find((x) => (x.key || x.name) === this.selected);
       if (!box) return;
       if (!v) { box.innerHTML = ''; return; }
       if (v.kind === 'function') {

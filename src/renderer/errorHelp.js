@@ -1121,6 +1121,19 @@
       },
     },
     {
+      // η Python 2.7 χωρίς Tkinter, π.χ. στο Ubuntu: «No module named _tkinter, please install the python-tk package»
+      when: (err) => isType(err, 'ImportError') && msgIs(err, /No module named (_tkinter|Tkinter)\b/),
+      help: () => ({
+        title: 'Η εγκατάσταση της Python 2.7 δεν έχει Tkinter',
+        what: 'Το πρόγραμμα είναι σωστό, αλλά στον υπολογιστή λείπει το κομμάτι της Python 2.7 για τα γραφικά παράθυρα (Tkinter).',
+        tips: [
+          'Στα **Windows**: ξανατρέξε τον installer της Python 2.7, διάλεξε «Change» και τσέκαρε το «Tcl/Tk».',
+          'Στο **Ubuntu/Linux**: `sudo apt install python-tk` όπου υπάρχει· αλλιώς η Python 2.7 εγκαθίσταται με Tkinter από το script `install-python27-linux.sh` (δες τις οδηγίες για Linux).',
+          'Αν δεν έχεις δικαιώματα διαχειριστή, ζήτησε βοήθεια από τον καθηγητή σου.',
+        ],
+      }),
+    },
+    {
       when: (err) => isType(err, 'ImportError'),
       help: (err) => {
         const n = (/named (.+)$|cannot import name (.+)$/.exec(err.message) || []).slice(1).find(Boolean) || '';

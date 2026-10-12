@@ -1,3 +1,10 @@
+/* ------------------------------------------------------------------ γραμματοσειρές */
+/* Windows πρώτα, μετά οι συνηθισμένες του Linux (Ubuntu, DejaVu, Liberation, Noto) */
+:root {
+  --font-ui: 'Segoe UI', system-ui, -apple-system, 'Ubuntu', 'Noto Sans', 'DejaVu Sans', sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, 'DejaVu Sans Mono', 'Ubuntu Mono', 'Liberation Mono', 'Courier New', monospace;
+}
+
 /* ------------------------------------------------------------------ θέματα */
 :root, body.theme-light {
   --bg: #ffffff;
@@ -31,6 +38,8 @@
   --bad-bg: #fdecec;
   --good-bg: #e8f6ec;
   --error-line: rgba(229, 72, 77, 0.14);
+  --exec-line: rgba(255, 196, 0, 0.32);
+  --exec-mark: #d49b00;
   --scroll-thumb: #c9ced6;
 }
 body.theme-dark {
@@ -65,6 +74,8 @@ body.theme-dark {
   --bad-bg: #3d2224;
   --good-bg: #1f3328;
   --error-line: rgba(255, 99, 99, 0.18);
+  --exec-line: rgba(255, 196, 0, 0.22);
+  --exec-mark: #f2c14e;
   --scroll-thumb: #4a4d52;
 }
 
@@ -77,14 +88,14 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   user-select: none;
 }
-.mono { font-family: 'Cascadia Mono', Consolas, 'Courier New', monospace; }
+.mono { font-family: var(--font-mono); }
 .spacer { flex: 1; }
 code, kbd {
-  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.92em;
   background: var(--code-bg);
   border-radius: 4px;
@@ -105,7 +116,10 @@ button { font: inherit; color: inherit; }
   padding: 5px 8px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
 }
+#toolbar > * { flex: none; }
+#toolbar > .spacer { flex: 1; }
 #toolbar button {
   display: inline-flex;
   align-items: center;
@@ -116,8 +130,12 @@ button { font: inherit; color: inherit; }
   border-radius: 7px;
   background: transparent;
   cursor: pointer;
+  white-space: nowrap;
 }
 #toolbar button:hover { background: var(--tab-hover); }
+/* όταν δεν χωρούν όλα (μικρό παράθυρο), κρύβονται κείμενα: πρώτα των αρχείων, μετά των πάνελ */
+#toolbar.compact-1 button.file span, #toolbar.compact-2 button.toggle span { display: none; }
+#toolbar.compact-1 button.file, #toolbar.compact-2 button.toggle { padding: 0 8px; }
 #toolbar button:active { transform: translateY(1px); }
 #toolbar button svg { width: 19px; height: 19px; flex: none; }
 #toolbar button.icon-only { padding: 0 8px; }
@@ -129,6 +147,50 @@ button { font: inherit; color: inherit; }
 #toolbar button.stop:hover { background: var(--stop); color: #fff; }
 #toolbar button.stop:disabled, #toolbar button.run:disabled { opacity: 0.45; cursor: default; }
 #toolbar button.toggle.on { background: var(--sel-row); border-color: var(--border); }
+#toolbar .speed {
+  --slider: var(--run);
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 8px; margin-left: 4px;
+  border: 1px solid var(--border); border-radius: 7px; color: var(--muted);
+}
+#toolbar .speed.on { --slider: var(--exec-mark); color: var(--exec-mark); border-color: var(--exec-mark); }
+#toolbar .speed svg { width: 18px; height: 18px; flex: none; }
+#speed-label { min-width: 7.4em; font-size: 13px; font-weight: 600; color: var(--fg); }
+#toolbar .speed.on #speed-label { color: var(--exec-mark); }
+/* slider 4 θέσεων: γεμάτη μπάρα έως τη λαβή (--fill, από το app.js) και σημάδια για κάθε θέση */
+.speed-slider { position: relative; width: 92px; height: 20px; }
+.speed-ticks { position: absolute; z-index: 2; left: 8px; right: 8px; top: 50%; height: 0; pointer-events: none; }
+.speed-ticks i {
+  position: absolute; top: -3px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%;
+  background: var(--border); transition: opacity 0.12s;
+}
+.speed-ticks i.done { background: var(--slider); }
+.speed-ticks i.cur { opacity: 0; }
+.speed-ticks i:nth-child(1) { left: 0; }
+.speed-ticks i:nth-child(2) { left: 33.333%; }
+.speed-ticks i:nth-child(3) { left: 66.667%; }
+.speed-ticks i:nth-child(4) { left: 100%; }
+#speed {
+  -webkit-appearance: none; appearance: none; position: relative; z-index: 1;
+  width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer;
+}
+#speed:focus { outline: none; }
+#speed::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(to right, var(--slider) 0 var(--fill, 100%), var(--border) var(--fill, 100%) 100%);
+}
+#speed::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  background: var(--bg); border: 3px solid var(--slider);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s;
+}
+#speed:hover::-webkit-slider-thumb, #speed:active::-webkit-slider-thumb { transform: scale(1.15); }
+#speed:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--sel-row), 0 1px 3px rgba(0, 0, 0, 0.25); }
+#toolbar button.step { display: none; color: var(--exec-mark); font-weight: 600; }
+body.speed-step #toolbar button.step { display: inline-flex; }
+#toolbar button.step:disabled { opacity: 0.45; cursor: default; }
+#toolbar button.step:not(:disabled) { border-color: var(--exec-mark); }
 #toolbar .sep { width: 1px; height: 24px; background: var(--border); margin: 0 6px; }
 body.running #toolbar button.run { opacity: 0.85; }
 
@@ -230,7 +292,16 @@ button.mini.close:hover { color: var(--fg); }
   display: flex; align-items: center; justify-content: center;
   width: 15px; height: 15px; margin: 2px 0 0 3px;
   background: #e5484d; color: #fff; border-radius: 50%;
-  font: bold 11px/1 'Segoe UI', sans-serif;
+  font: bold 11px/1 var(--font-ui);
+}
+
+/* γραμμή που εκτελείται (βήμα-βήμα) */
+.monaco-editor .exec-line { background: var(--exec-line); }
+.monaco-editor .exec-glyph::before {
+  content: '➜';
+  display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 100%; margin-left: 2px;
+  color: var(--exec-mark); font: bold 15px/1 var(--font-ui);
 }
 
 /* ------------------------------------------------------------------ shell */
@@ -263,19 +334,36 @@ button.mini.close:hover { color: var(--fg); }
   color: var(--hint-fg);
   border: 1px solid var(--hint-border);
   border-radius: 6px;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-ui);
   cursor: pointer;
 }
 #shell .hint:hover { filter: brightness(0.97); }
+/* inline-block με πλάτος: σε άδειο inline στοιχείο πλάτους 0 ο κέρσορας δεν σχεδιάζεται */
 #shell .shell-edit {
   outline: none;
   color: var(--input);
   font-weight: 600;
   caret-color: var(--fg);
-  min-width: 2px;
-  display: inline;
+  display: inline-block;
+  min-width: 1ch;
+  max-width: 100%;
 }
 #shell .shell-edit:empty::after { content: '\200b'; }
+/* το πρόγραμμα περιμένει τιμή: κουτί εισόδου με οδηγία, ορατό ακόμα κι αν το focus είναι αλλού */
+#shell .shell-edit.waiting {
+  min-width: 10ch;
+  padding: 0 5px;
+  margin-left: 1px;
+  border-radius: 3px;
+  background: var(--sel-row);
+  box-shadow: inset 0 -2px 0 var(--input);
+}
+#shell .shell-edit.waiting:empty::after {
+  content: 'γράψε εδώ και πάτα Enter ⏎';
+  color: var(--muted);
+  font: italic 400 0.9em var(--font-ui);
+  pointer-events: none;
+}
 
 /* ------------------------------------------------------------------ μεταβλητές */
 #vars .empty, #assistant .empty { padding: 16px; color: var(--muted); font-size: 13px; }
@@ -293,8 +381,8 @@ table.vars tr:hover td { background: var(--tab-hover); }
 table.vars tr.selected td { background: var(--sel-row); }
 table.vars tr.changed td { animation: changed 1.8s ease-out; }
 @keyframes changed { from { background: var(--changed); } to { background: transparent; } }
-.vname { font-weight: 600; font-family: 'Cascadia Mono', Consolas, monospace; }
-.vval { font-family: 'Cascadia Mono', Consolas, monospace; }
+.vname { font-weight: 600; font-family: var(--font-mono); }
+.vval { font-family: var(--font-mono); }
 .vtype { color: var(--muted); font-size: 12px; }
 .vtype-gr { display: block; font-size: 11px; opacity: 0.85; }
 table.vars tr.group td {
@@ -308,6 +396,7 @@ table.vars tr.group td {
   cursor: default;
 }
 table.vars tr.group:hover td { background: var(--bg); }
+table.vars tr.group.local td { color: var(--exec-mark); }
 table.vars tr.fn .vval { color: var(--accent); }
 .vfn-label { margin-top: 6px; color: var(--muted); }
 .vfn-doc { margin-top: 6px; font-style: italic; }
@@ -318,8 +407,8 @@ table.vars tr.fn .vval { color: var(--accent); }
 .vfn-goto:hover { border-color: var(--accent); }
 .vdetail:not(:empty) { margin: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; }
 .vdetail-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; color: var(--muted); }
-.vdetail-head b { color: var(--fg); font-family: 'Cascadia Mono', Consolas, monospace; }
-.vdetail pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font-family: 'Cascadia Mono', Consolas, monospace; max-height: 220px; overflow: auto; }
+.vdetail-head b { color: var(--fg); font-family: var(--font-mono); }
+.vdetail pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); max-height: 220px; overflow: auto; }
 
 /* ------------------------------------------------------------------ βοηθός */
 .assist { padding: 12px 14px 20px; font-size: 13.5px; line-height: 1.55; }
@@ -346,7 +435,7 @@ table.vars tr.fn .vval { color: var(--accent); }
 .ex-label { font-size: 11.5px; font-weight: 600; margin-bottom: 4px; }
 .ex-col.bad .ex-label { color: var(--err); }
 .ex-col.good .ex-label { color: var(--run); }
-.ex pre { margin: 0; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+.ex pre { margin: 0; font-family: var(--font-mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
 
 /* ------------------------------------------------------------------ θέλω να θυμηθώ */
 #recall .empty { padding: 16px; color: var(--muted); font-size: 13px; }

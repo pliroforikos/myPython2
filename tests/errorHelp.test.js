@@ -140,6 +140,13 @@ test('ImportError tkinter', () => {
   assert.match(h.title, /Tkinter/);
 });
 
+test('ImportError: η Python 2.7 χωρίς Tkinter (Linux)', () => {
+  const h = H.explain(err('ImportError', 'No module named _tkinter, please install the python-tk package', 1), {});
+  assert.match(h.title, /δεν έχει Tkinter/);
+  // το όνομα της Python 3 εξακολουθεί να εξηγείται χωριστά
+  assert.match(H.explain(err('ImportError', 'No module named tkinter', 1), {}).title, /Στην Python 2/);
+});
+
 test('sqlite3 8-bit bytestrings', () => {
   const h = H.explain(err('sqlite3.ProgrammingError', 'You must not use 8-bit bytestrings unless you use a text_factory', 1), {});
   assert.match(h.title, /βάση/);

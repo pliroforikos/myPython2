@@ -16,7 +16,7 @@ TK_RE = re.compile(
     r'(?:Tkinter|tkMessageBox|tkSimpleDialog|tkFileDialog|ttk|tkFont|ScrolledText)\b',
     re.M)
 
-FS_ENCODING = sys.getfilesystemencoding() or 'mbcs'
+FS_ENCODING = sys.getfilesystemencoding() or ('mbcs' if sys.platform == 'win32' else 'utf-8')
 
 
 def declared_encoding(text):

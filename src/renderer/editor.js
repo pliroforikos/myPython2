@@ -268,7 +268,7 @@
       language: LANG,
       theme: settings.theme === 'dark' ? 'idle-dark' : 'idle-light',
       fontSize: settings.fontSize,
-      fontFamily: "'Cascadia Mono', Consolas, 'Courier New', monospace",
+      fontFamily: "'Cascadia Mono', Consolas, 'DejaVu Sans Mono', 'Ubuntu Mono', 'Liberation Mono', 'Courier New', monospace",
       fontLigatures: false,
       automaticLayout: true,
       tabSize: 4,

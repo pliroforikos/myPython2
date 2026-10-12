@@ -30,6 +30,16 @@
     ].join('\n');
   }
 
+  /** Ταχύτητες εκτέλεσης: τι στέλνεται στον runner (null = κανονική εκτέλεση, χωρίς παρακολούθηση). */
+  const SPEEDS = {
+    step: { mode: 'step' },
+    slow: { mode: 'auto', delay: 1000 },
+    medium: { mode: 'auto', delay: 400 },
+    normal: null,
+  };
+  const SPEED_NAMES = { step: 'Γραμμή γραμμή', slow: 'Αργή', medium: 'Μέτρια', normal: 'Κανονική' };
+  const SPEED_ORDER = ['step', 'slow', 'medium', 'normal'];   // θέσεις του slider, από αριστερά
+
   const samePath =(a, b) => !!a && !!b && a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
   const baseName = (p) => p.split(/[\\/]/).pop();
 
@@ -44,8 +54,9 @@
     running: false,
     runTab: null,
     runHadError: false,
+    traced: false,       // η τρέχουσα εκτέλεση γίνεται βήμα-βήμα (με παρακολούθηση γραμμών)
+    execIds: [],         // φωτισμός της γραμμής που εκτελείται
     pythonVersion: null,
-    checkTimer: null,
 
     // ================================================================ εκκίνηση
     async init(monaco) {
@@ -59,15 +70,21 @@
       this.editor.onDidChangeCursorPosition((e) => {
         $('#st-pos').textContent = `Γρ ${e.position.lineNumber}, Στ ${e.position.column}`;
       });
-      // F5 / Ctrl+F2 και μέσα στον editor (για σιγουριά, αν δεν πιάσει το μενού)
-      this.editor.addCommand(monaco.KeyCode.F5, () => this.run());
+      // Μέσα στον editor ο Monaco «πιάνει» κάποια πλήκτρα πριν από το μενού: F1 (παλέτα εντολών), F7/F8
+      // (μετάβαση σε επισήμανση/λάθος), Ctrl+F2 (αλλαγή όλων των εμφανίσεων). Εδώ πηγαίνουν στις δικές μας εντολές.
+      const K = monaco.KeyCode;
+      const keys = [[K.F1, 'help'], [K.F5, 'run'], [K.F6, 'toggleVariables'], [K.F7, 'toggleAssistant'],
+        [K.F8, 'toggleRecall'], [K.F10, 'step'], [monaco.KeyMod.CtrlCmd | K.F2, 'stop']];
+      for (const [kb, cmd] of keys) this.editor.addCommand(kb, () => this.onMenu(cmd));
+      // Ctrl+M: στον Monaco κάνει το Tab να βγάζει το focus από τον editor αντί να βάζει εσοχή
+      this.editor.addCommand(monaco.KeyMod.CtrlCmd | K.KeyM, () => {});
 
       this.shell = new root.Shell($('#shell'), {
         onInput: (text) => api.backend.input(text),
         onRepl: (line) => { this.setState('running', 'Εκτελείται εντολή…'); api.backend.repl(line); },
         onLink: (file, line) => this.gotoFileLine(file, line),
         onInterrupt: () => this.stop(),
-        onHelp: () => this.showPanel('assistant', true),
+        onHelp: () => this.showAssistant(),
       });
       this.vars = new root.Panels.VariablesView($('#vars'), {
         onGoto: (line) => {
@@ -90,15 +107,48 @@
       this.applyLayout();
       this.applyFont();
       this.applyPanels();
+      this.applySpeed();
       this.bindToolbar();
       this.bindSplitters();
       this.bindDrop();
+      // Στα Windows, όταν αφήνεται σκέτο το Alt (π.χ. μετά από Alt+κλικ για πολλαπλούς κέρσορες), το Electron
+      // δίνει το πληκτρολόγιο στη γραμμή μενού και ο editor «κολλάει»: δεν γράφει, ενώ ο κέρσορας φαίνεται ενεργός.
+      // Τα Alt+γράμμα για τα μενού δουλεύουν κανονικά (ενεργοποιούνται με το πάτημα του γράμματος).
+      window.addEventListener('keyup', (e) => { if (e.key === 'Alt' || e.key === 'AltGraph') e.preventDefault(); }, true);
+      window.addEventListener('keydown', (e) => this.redirectTyping(e), true);
+      // Τα κουμπιά δεν κρατούν το focus: μετά από κλικ στο «A+» ή στο «Μεταβλητές» η πληκτρολόγηση συνεχίζει στον editor.
+      document.addEventListener('mousedown', (e) => {
+        const b = e.target.closest('button');
+        if (b && !b.closest('dialog, .monaco-editor')) e.preventDefault();
+      }, true);
       api.onMenu((id, arg) => this.onMenu(id, arg));
       api.backend.onMessage((msg) => this.onBackend(msg));
 
       await this.restoreSession();
       this.startShell();
       this.checkPython();
+    },
+
+    /**
+     * «Πληκτρολόγηση οπουδήποτε»: αν το focus δεν είναι σε πεδίο κειμένου (π.χ. μετά από κλικ στον Βοηθό ή στη
+     * γραμμή κατάστασης), τα πλήκτρα πηγαίνουν στον editor, ή στο Shell όταν το πρόγραμμα περιμένει τιμή.
+     * Αλλιώς ο μαθητής γράφει και δεν γίνεται τίποτα.
+     */
+    redirectTyping(e) {
+      if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing || document.querySelector('dialog[open]')) return;
+      const a = document.activeElement;
+      const onBody = !a || a === document.body || a === document.documentElement;
+      if (!onBody) {
+        if (a.isContentEditable || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' ||
+            (a.tagName === 'INPUT' && a.type !== 'range')) return;
+        if (a.closest('#shell')) return;   // το Shell στέλνει μόνο του τα πλήκτρα στη γραμμή εισόδου του
+        if (e.key === ' ' || e.key === 'Enter') return;   // ενεργοποίηση κουμπιού/στοιχείου από το πληκτρολόγιο
+      }
+      const typing = e.key.length === 1 || e.key === 'Dead' ||
+        (onBody && (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete'));
+      if (!typing || !this.editor || !this.editor.getModel()) return;
+      if (this.shell.waiting) this.shell.focus();
+      else this.editor.focus();
     },
 
     async restoreSession() {
@@ -138,7 +188,12 @@
           message: info.error === 'notpy2'
             ? `Η διαδρομή που έχει οριστεί είναι Python ${info.version}, όχι Python 2.7.`
             : 'Δεν βρέθηκε η Python 2.7 στον υπολογιστή.',
-          detail: 'Η εφαρμογή χρειάζεται την Python 2.7 (συνήθως στο C:\\Python27\\python.exe). Όρισε τη διαδρομή από τις Ρυθμίσεις.',
+          detail: api.platform === 'win32'
+            ? 'Η εφαρμογή χρειάζεται την Python 2.7 (συνήθως στο C:\\Python27\\python.exe). Όρισε τη διαδρομή από τις Ρυθμίσεις.'
+            : info.installScript
+              ? `Η εφαρμογή χρειάζεται την Python 2.7. Για να την εγκαταστήσεις, άνοιξε ένα τερματικό και γράψε:\n\nsudo bash "${info.installScript}"\n\nΜετά ξεκίνα ξανά την εφαρμογή.`
+              : 'Η εφαρμογή χρειάζεται την Python 2.7 (συνήθως /usr/bin/python2.7). Σε Ubuntu 22.04: sudo apt install python2. ' +
+                'Σε νεότερες διανομές δες τις οδηγίες για Linux στο github.com/pliroforikos/myPython2. Όρισε τη διαδρομή από τις Ρυθμίσεις.',
           buttons: ['Ρυθμίσεις…', 'Αργότερα'],
           defaultId: 0,
         });
@@ -149,15 +204,15 @@
     // ================================================================ καρτέλες
     addTab({ path, content }, activate = true) {
       const monaco = this.monaco;
-      let uri;
-      if (path) uri = monaco.Uri.file(path);
-      else uri = monaco.Uri.parse(`inmemory://untitled/${++this.untitledCount}.py`);
-      let model = monaco.editor.getModel(uri);
-      if (model) model.setValue(content);
-      else model = monaco.editor.createModel(content, ES().LANG, uri);
+      if (!path) this.untitledCount++;
+      const id = this.nextId++;
+      // Κάθε καρτέλα έχει δικό της μοντέλο, με URI που δεν εξαρτάται από το όνομα του αρχείου. Με URI το όνομα,
+      // μετά από «Αποθήκευση ως» και ξανά-άνοιγμα του αρχικού, δύο καρτέλες μοιράζονταν το ίδιο μοντέλο: η μία
+      // έχανε το περιεχόμενό της και, όταν έκλεινε η άλλη, ο editor έμενε με μοντέλο που είχε καταστραφεί.
+      const model = monaco.editor.createModel(content, ES().LANG, monaco.Uri.parse(`inmemory://tab/${id}.py`));
       model.updateOptions({ tabSize: 4, insertSpaces: true });
       const tab = {
-        id: this.nextId++,
+        id,
         path: path || null,
         title: path ? baseName(path) : (this.untitledCount === 1 ? 'χωρίς τίτλο' : `χωρίς τίτλο ${this.untitledCount}`),
         model,
@@ -407,17 +462,97 @@
         if (!(await this.save(tab))) return;
       }
       this.marks.clear();
+      this.clearExecLine();
+      const speed = this.settings.runSpeed || 'normal';
       this.running = true;
       this.runTab = tab;
       this.runHadError = false;
+      this.traced = !!SPEEDS[speed];
       this.vars.reset();
       this.vars.empty('Το πρόγραμμα εκτελείται…');
       this.shell.beginRun(tab.title);
-      this.setState('running');
+      this.setState('running', this.traced ? `Εκτελείται (${SPEED_NAMES[speed]})…` : null);
       $('#shell-sub').textContent = '';
       this.renderTabs();
+      this.updateStepButton();
       this.awaitingReady = true;
-      api.backend.run(tab.path, tab.model.getValue());
+      api.backend.run(tab.path, tab.model.getValue(), SPEEDS[speed]);
+    },
+
+    // ================================================================ βήμα-βήμα
+    setSpeed(speed) {
+      if (!(speed in SPEEDS) || speed === this.settings.runSpeed) { this.applySpeed(); return; }
+      this.updateSettings({ runSpeed: speed });
+      if (!this.running) return;
+      if (this.traced) {
+        api.backend.trace(SPEEDS[speed] || { mode: 'off' });
+        if (!SPEEDS[speed]) this.clearExecLine();
+        this.setState('running', `Εκτελείται (${SPEED_NAMES[speed]})…`);
+      } else if (SPEEDS[speed]) {
+        // ένα πρόγραμμα που ξεκίνησε κανονικά δεν παρακολουθείται γραμμή-γραμμή
+        this.setState('running', `Η ταχύτητα «${SPEED_NAMES[speed]}» θα ισχύσει στην επόμενη εκτέλεση (F5)`);
+      }
+    },
+
+    applySpeed() {
+      const speed = this.settings.runSpeed || 'normal';
+      this.showSpeed(SPEED_ORDER.indexOf(speed));
+      document.body.classList.toggle('speed-step', speed === 'step');
+      this.updateStepButton();
+      this.fitToolbar();
+    },
+
+    /** Θέση του slider, όνομα και χρώμα (και κατά το σύρσιμο, πριν εφαρμοστεί η ταχύτητα). */
+    showSpeed(i) {
+      const speed = SPEED_ORDER[i] || 'normal';
+      const range = $('#speed');
+      range.value = SPEED_ORDER.indexOf(speed);
+      range.style.setProperty('--fill', `${(range.value / 3) * 100}%`);
+      range.title = SPEED_NAMES[speed];
+      $('#speed-label').textContent = SPEED_NAMES[speed];
+      range.closest('.speed').querySelectorAll('.speed-ticks i').forEach((t, k) => {
+        t.classList.toggle('done', k < range.value);
+        t.classList.toggle('cur', k === Number(range.value));
+      });
+      range.closest('.speed').classList.toggle('on', speed !== 'normal');
+    },
+
+    updateStepButton() {
+      $('#btn-step').disabled = !(this.running && this.traced && this.settings.runSpeed === 'step');
+    },
+
+    step() {
+      if (this.running && this.traced && this.settings.runSpeed === 'step') api.backend.step();
+    },
+
+    onStep(msg) {
+      const tab = this.runTab;
+      if (!this.running || !tab || tab.model.isDisposed()) return;
+      // χωρίς activate(): αν ο μαθητής πήγε σε άλλη καρτέλα, μένει εκεί και γράφει κανονικά
+      this.showExecLine(tab.model, msg.line);
+      this.vars.update(msg.vars || [], msg.locals, msg.func);
+      const speed = this.settings.runSpeed;
+      if (speed === 'step') this.setState('running', `Γραμμή ${msg.line}: πάτα «Επόμενη» ή F10`);
+      else if (SPEEDS[speed]) this.setState('running', `Γραμμή ${msg.line} (${SPEED_NAMES[speed]})`);
+    },
+
+    showExecLine(model, line) {
+      if (line > model.getLineCount()) return;
+      this.execIds = model.deltaDecorations(this.execIds, [{
+        range: new this.monaco.Range(line, 1, line, 1),
+        options: {
+          isWholeLine: true, className: 'exec-line', glyphMarginClassName: 'exec-glyph',
+          overviewRuler: { color: '#e0a800', position: this.monaco.editor.OverviewRulerLane.Full },
+        },
+      }]);
+      this.execModel = model;
+      if (this.editor.getModel() === model) this.editor.revealLineInCenterIfOutsideViewport(line);
+    },
+
+    clearExecLine() {
+      if (this.execModel && !this.execModel.isDisposed()) this.execModel.deltaDecorations(this.execIds, []);
+      this.execIds = [];
+      this.execModel = null;
     },
 
     stop() {
@@ -425,6 +560,8 @@
       this.awaitingReady = true;
       api.backend.stop();
       this.running = false;
+      this.clearExecLine();
+      this.updateStepButton();
       this.renderTabs();
       if (wasRunning) {
         this.shell.stopped('Το πρόγραμμα διακόπηκε από τον χρήστη.');
@@ -463,6 +600,8 @@
           break;
         case 'done':
           this.running = false;
+          this.clearExecLine();
+          this.updateStepButton();
           this.renderTabs();
           if (!this.runHadError) {
             this.setState('idle', 'Ολοκληρώθηκε');
@@ -472,12 +611,17 @@
         case 'globals':
           this.vars.update(msg.vars || []);
           break;
+        case 'step':
+          this.onStep(msg);
+          break;
         case 'prompt':
           if (!this.running && !$('#st-state').classList.contains('error')) this.setState('idle');
           this.shell.showPrompt(msg.more);
           break;
         case 'exit':
           this.running = false;
+          this.clearExecLine();
+          this.updateStepButton();
           this.renderTabs();
           this.shell.stopped(`Η διεργασία της Python τερμάτισε${msg.code ? ` (κωδικός ${msg.code})` : ''}. Νέο Shell…`);
           this.setState('idle');
@@ -496,6 +640,7 @@
 
     onError(err) {
       const repl = err.phase === 'repl';
+      if (!repl) this.clearExecLine();
       if (!repl) this.runHadError = true;
       const loc = err.location || {};
       const tab = repl ? null : (this.tabForFile(loc.filename) || (samePath(loc.filename, this.runTab && this.runTab.path) ? this.runTab : null));
@@ -521,6 +666,20 @@
         b.addEventListener('click', () => this.onMenu(b.dataset.cmd));
       });
       $('#st-enc').textContent = `Ελληνικά: ${this.settings.stringEncoding}`;
+      const range = $('#speed');
+      range.addEventListener('input', () => this.showSpeed(Number(range.value)));
+      range.addEventListener('change', () => { this.setSpeed(SPEED_ORDER[Number(range.value)]); this.editor.focus(); });
+      new ResizeObserver(() => this.fitToolbar()).observe($('#toolbar'));
+    },
+
+    /** Αν τα κουμπιά δεν χωρούν, κρύβει σταδιακά τα κείμενα κάποιων (μένουν τα εικονίδια, με tooltip). */
+    fitToolbar() {
+      const tb = $('#toolbar');
+      tb.classList.remove('compact-1', 'compact-2');
+      for (const c of ['compact-1', 'compact-2']) {
+        if (tb.scrollWidth <= tb.clientWidth) break;
+        tb.classList.add(c);
+      }
     },
 
     editorAction(id) {
@@ -544,6 +703,8 @@
         case 'closeTab': if (this.active) this.closeTab(this.active); break;
         case 'run': this.run(); break;
         case 'stop': this.stop(); break;
+        case 'step': this.step(); break;
+        case 'speed:step': case 'speed:slow': case 'speed:medium': case 'speed:normal': this.setSpeed(id.split(':')[1]); break;
         case 'clearShell': this.shell.clear(); break;
         case 'fixQuotes': this.fixQuotes(); break;
         case 'zoomIn': this.setFont(this.settings.fontSize + 1); break;
@@ -646,6 +807,7 @@
       this.monaco.editor.setTheme(this.settings.theme === 'dark' ? 'idle-dark' : 'idle-light');
       if ('showVariables' in patch || 'showAssistant' in patch || 'showRecall' in patch) this.applyPanels();
       if ('fontSize' in patch) this.applyFont();
+      if ('runSpeed' in patch) this.applySpeed();
       if ('liveCheck' in patch) this.tabs.forEach((t) => this.scheduleCheck(t, 10));
     },
 
@@ -679,9 +841,8 @@
       if (this.settings.showAssistant) $('#shell-sub').textContent = '';
     },
 
-    showPanel(which) {
-      if (which === 'assistant' && !this.settings.showAssistant) this.updateSettings({ showAssistant: true });
-      if (which === 'variables' && !this.settings.showVariables) this.updateSettings({ showVariables: true });
+    showAssistant() {
+      if (!this.settings.showAssistant) this.updateSettings({ showAssistant: true });
     },
 
     async openSettings() {
@@ -745,12 +906,16 @@
           splitter.classList.add('dragging');
           document.body.classList.add(dir === 'h' ? 'dragging-h' : 'dragging-v');
           let last = null;
-          const move = (ev) => { last = onMove(ev); };
+          // Αν το mouseup χαθεί (π.χ. Alt+Tab στη μέση του συρσίματος), το σύρσιμο τελειώνει με την επόμενη
+          // κίνηση χωρίς πατημένο κουμπί ή όταν το παράθυρο χάσει το focus. Αλλιώς έμενε το pointer-events: none
+          // σε όλη τη σελίδα και κανένα κλικ δεν λειτουργούσε.
+          const move = (ev) => { if (!(ev.buttons & 1)) { up(); return; } last = onMove(ev); };
           const up = () => {
             splitter.classList.remove('dragging');
             document.body.classList.remove('dragging-h', 'dragging-v');
             window.removeEventListener('mousemove', move);
             window.removeEventListener('mouseup', up);
+            window.removeEventListener('blur', up);
             if (last != null) {
               this.settings.layout = { ...(this.settings.layout || {}), [key]: Math.round(last) };
               api.settings.set({ layout: this.settings.layout });
@@ -758,6 +923,7 @@
           };
           window.addEventListener('mousemove', move);
           window.addEventListener('mouseup', up);
+          window.addEventListener('blur', up);
         });
       };
       drag($('#split-shell'), 'h', (e) => {

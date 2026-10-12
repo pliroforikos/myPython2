@@ -5,22 +5,46 @@
 const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const BACKEND_DIR = path.join(__dirname, '..', '..', 'backend').replace('app.asar', 'app.asar.unpacked');
 const RUNNER = path.join(BACKEND_DIR, 'runner.py');
 const CHECKER = path.join(BACKEND_DIR, 'checker.py');
 
-const PYTHON_CANDIDATES = [
+const IS_WIN = process.platform === 'win32';
+
+const PYTHON_CANDIDATES = IS_WIN ? [
   'C:\\Python27\\python.exe',
   'C:\\Program Files\\Python27\\python.exe',
   'C:\\Program Files (x86)\\Python27\\python.exe',
   'D:\\Python27\\python.exe',
+] : [
+  '/usr/bin/python2.7',
+  '/usr/bin/python2',
+  '/usr/local/bin/python2.7',
+  '/opt/python2.7/bin/python2.7',   // εγκατάσταση με το scripts/install-python27-linux.sh
 ];
 
 function findPython(configured) {
   if (configured && fs.existsSync(configured)) return configured;
-  return PYTHON_CANDIDATES.find((p) => fs.existsSync(p)) || configured || null;
+  return PYTHON_CANDIDATES.find((p) => fs.existsSync(p)) || (IS_WIN ? null : findPythonOnPath()) || configured || null;
+}
+
+/** Linux: python2.7 / python2 στο PATH ή η νεότερη 2.7.x του pyenv. */
+function findPythonOnPath() {
+  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+    for (const name of ['python2.7', 'python2']) {
+      if (fs.existsSync(path.join(dir, name))) return path.join(dir, name);
+    }
+  }
+  const pyenv = path.join(os.homedir(), '.pyenv', 'versions');
+  try {
+    const v = fs.readdirSync(pyenv).filter((d) => /^2\.7\.\d+$/.test(d))
+      .sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).pop();
+    if (v) return path.join(pyenv, v, 'bin', 'python2.7');
+  } catch (_) { /* χωρίς pyenv */ }
+  return null;
 }
 
 function cleanEnv() {
@@ -28,6 +52,9 @@ function cleanEnv() {
   // μεταβλητές μιας εγκατάστασης Python 3 μπορεί να χαλάσουν την Python 2
   for (const k of ['PYTHONHOME', 'PYTHONPATH', 'PYTHONSTARTUP', 'PYTHONUSERBASE', 'VIRTUAL_ENV']) delete env[k];
   env.PYTHONDONTWRITEBYTECODE = '1';
+  // Linux: η Python 2 κωδικοποιεί τα ονόματα αρχείων με το locale. Χωρίς UTF-8 locale (π.χ. LANG=C),
+  // διαδρομές όπως ~/Έγγραφα/Python2 δεν θα μπορούσαν να ανοίξουν.
+  if (!IS_WIN && !/utf-?8/i.test(env.LC_ALL || env.LC_CTYPE || env.LANG || '')) env.LC_ALL = 'C.UTF-8';
   return env;
 }
 
@@ -46,7 +73,7 @@ function pythonVersion(pythonPath) {
 function killTree(proc) {
   if (!proc || proc.exitCode !== null) return;
   try {
-    if (process.platform === 'win32') {
+    if (IS_WIN) {
       spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true });
     } else {
       proc.kill('SIGKILL');
@@ -108,8 +135,8 @@ class Backend extends EventEmitter {
       try { msg = JSON.parse(line); } catch (_) { msg = { type: 'out', stream: 'stdout', text: line + '\n' }; }
       this.emit('message', msg);
     }));
-    // ό,τι γράφεται απευθείας στο fd (π.χ. os.system) έρχεται εδώ
-    const errDecoder = new TextDecoder('windows-1253');
+    // ό,τι γράφεται απευθείας στο fd (π.χ. os.system) έρχεται εδώ, στην κωδικοποίηση του συστήματος
+    const errDecoder = new TextDecoder(IS_WIN ? 'windows-1253' : 'utf-8');
     proc.stderr.on('data', (chunk) => {
       if (gen !== this.gen) return;
       const text = errDecoder.decode(chunk, { stream: true });
@@ -141,8 +168,9 @@ class Backend extends EventEmitter {
     }
   }
 
-  run({ path: filePath, source, encoding }) {
-    this._spawn({ cmd: 'run', path: filePath, source, encoding, cwd: filePath ? path.dirname(filePath) : undefined });
+  /** trace: null για κανονική εκτέλεση, ή { mode: 'step' | 'auto', delay } για βήμα-βήμα. */
+  run({ path: filePath, source, encoding, trace }) {
+    this._spawn({ cmd: 'run', path: filePath, source, encoding, trace: trace || null, cwd: filePath ? path.dirname(filePath) : undefined });
   }
 
   shell({ cwd, encoding }) {
@@ -151,13 +179,14 @@ class Backend extends EventEmitter {
 
   input(text) { this._send({ cmd: 'input', text }); }
   repl(line) { this._send({ cmd: 'repl', line }); }
+  trace(opts) { this._send({ cmd: 'trace', ...opts }); }
+  step() { this._send({ cmd: 'step' }); }
 
   stop() {
     this.gen++;
     this._kill();
   }
 
-  get running() { return !!this.proc; }
 }
 
 /** Μόνιμη διεργασία για έλεγχο σύνταξης καθώς γράφει ο μαθητής. */
@@ -221,4 +250,4 @@ class Checker {
   dispose() { this.reset(); }
 }
 
-module.exports = { Backend, Checker, findPython, pythonVersion, killTree };
+module.exports = { Backend, Checker, findPython, pythonVersion };

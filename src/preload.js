@@ -2,13 +2,13 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  platform: process.platform,
   file: {
     open: () => ipcRenderer.invoke('file:open'),
     read: (p) => ipcRenderer.invoke('file:read', p),
     save: (p, content) => ipcRenderer.invoke('file:save', p, content),
     saveAs: (content, suggested) => ipcRenderer.invoke('file:saveAs', content, suggested),
     exists: (p) => ipcRenderer.invoke('file:exists', p),
-    showInFolder: (p) => ipcRenderer.invoke('file:showInFolder', p),
   },
   openExample: (file) => ipcRenderer.invoke('example:open', file),
   recall: () => ipcRenderer.invoke('recall:get'),
@@ -26,7 +26,9 @@ contextBridge.exposeInMainWorld('api', {
     test: (p) => ipcRenderer.invoke('python:test', p),
   },
   backend: {
-    run: (path, source) => ipcRenderer.send('backend:run', { path, source }),
+    run: (path, source, trace) => ipcRenderer.send('backend:run', { path, source, trace }),
+    trace: (opts) => ipcRenderer.send('backend:trace', opts),
+    step: () => ipcRenderer.send('backend:step'),
     shell: () => ipcRenderer.send('backend:shell'),
     stop: () => ipcRenderer.send('backend:stop'),
     input: (text) => ipcRenderer.send('backend:input', text),

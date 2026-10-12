@@ -3,6 +3,9 @@
   'use strict';
 
   const MAX_NODES = 4000;
+  // Όριο κειμένου στο Shell (≈ 3000 γραμμές). Με ατέρμονο print το Shell μάζευε δεκάδες εκατομμύρια
+  // χαρακτήρες και όλη η εφαρμογή «κολλούσε», μαζί και η πληκτρολόγηση στον editor.
+  const MAX_CHARS = 200000;
   const TB_LINE_RE = /^(\s*File ")(.+)(", line )(\d+)(.*)$/;
 
   class Shell {
@@ -14,12 +17,15 @@
       this.h = handlers;
       this.edit = null;
       this.mode = 'idle';          // idle | running | repl
+      this.waiting = false;        // το πρόγραμμα περιμένει τιμή (raw_input/input)
       this.atPrompt = false;
       this.lastChar = '\n';
       this.history = [];
       this.histIdx = 0;
       this.pasteQueue = [];
-      this.promptSpan = null;
+      this.chars = 0;              // χαρακτήρες εξόδου στο Shell (για το MAX_CHARS)
+      this.trimNote = null;        // «… η παλαιότερη έξοδος αφαιρέθηκε»
+      this.refocus = false;        // το Shell είχε το focus πριν σταματήσει το πρόγραμμα
 
       el.addEventListener('mouseup', () => {
         const sel = window.getSelection();
@@ -37,28 +43,53 @@
     _append(node) {
       if (this.edit && this.edit.parentNode === this.el) this.el.insertBefore(node, this.edit);
       else this.el.appendChild(node);
+      this.chars += node.textContent.length;
     }
 
+    /** Η παλαιότερη έξοδος φεύγει όταν ξεπεραστεί το όριο κόμβων ή χαρακτήρων. */
     _trim() {
-      while (this.el.childNodes.length > MAX_NODES) {
-        const first = this.el.firstChild;
-        if (first === this.edit || first === this.promptSpan) break;
+      if (this.el.childNodes.length <= MAX_NODES && this.chars <= MAX_CHARS) return;
+      if (!this.trimNote) {
+        this.trimNote = document.createElement('span');
+        this.trimNote.className = 'info';
+        this.trimNote.textContent = '… η παλαιότερη έξοδος αφαιρέθηκε, για να μη βαραίνει το Shell\n';
+        this.el.insertBefore(this.trimNote, this.el.firstChild);
+      }
+      while (this.el.childNodes.length > MAX_NODES || this.chars > MAX_CHARS) {
+        const first = this.trimNote.nextSibling;
+        if (!first || first === this.edit) break;
+        const len = first.textContent.length;
+        const excess = this.chars - MAX_CHARS / 2;
+        if (this.chars > MAX_CHARS && len > excess && first.nodeType === 1 && !first.dataset.fixed) {
+          // ένας μεγάλος κόμβος: κρατάμε μόνο το τέλος του
+          first.textContent = first.textContent.slice(excess);
+          this.chars -= excess;
+          break;
+        }
         this.el.removeChild(first);
+        this.chars -= len;
       }
     }
 
     _scroll() {
-      const el = this.el;
-      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+      // μία κύλιση ανά καρέ, όσα μηνύματα κι αν έρθουν
+      if (this.scrollPending) return;
+      this.scrollPending = true;
+      requestAnimationFrame(() => {
+        this.scrollPending = false;
+        this.el.scrollTop = this.el.scrollHeight;
+      });
     }
 
     write(text, cls) {
       if (!text) return;
       cls = cls || 'out';
+      if (text.length > MAX_CHARS) text = text.slice(-MAX_CHARS);
       const before = this.edit && this.edit.parentNode === this.el ? this.edit.previousSibling : this.el.lastChild;
-      if (before && before.nodeType === 1 && before.className === cls && before !== this.promptSpan &&
+      if (before && before.nodeType === 1 && before.className === cls && before !== this.trimNote &&
           !before.dataset.fixed && before.textContent.length < 20000) {
         before.textContent += text;
+        this.chars += text.length;
       } else {
         const span = document.createElement('span');
         span.className = cls;
@@ -82,6 +113,7 @@
       ed.className = 'shell-edit';
       ed.contentEditable = 'plaintext-only';
       ed.spellcheck = false;
+      if (this.waiting) ed.classList.add('waiting');
       ed.addEventListener('keydown', (e) => this._onKey(e));
       ed.addEventListener('paste', (e) => this._onPaste(e));
       this.el.appendChild(ed);
@@ -171,6 +203,7 @@
         this._ensureEdit();
         this.h.onRepl(text);
       } else if (mode === 'running') {
+        this.waiting = false;
         this.write(text + '\n', 'user-input');
         this._ensureEdit();
         this.focus();
@@ -188,8 +221,11 @@
 
     // ------------------------------------------------------------- καταστάσεις
     beginRun(name) {
+      const hadFocus = this.hasFocus() || this.refocus;
+      this.refocus = false;
       this._removeEdit();
       this.pasteQueue = [];
+      this.waiting = false;
       if (this.atPrompt) {
         this.write(`%Run ${name}\n`, 'command');
       } else {
@@ -199,17 +235,23 @@
       }
       this.mode = 'running';
       this._ensureEdit();
+      if (hadFocus) this.focus();
     }
 
     requestInput() {
       this.mode = 'running';
+      this.waiting = true;
+      this.refocus = false;
       this._ensureEdit();
+      this.edit.classList.add('waiting');
       if (this._drainPaste('running')) return;
       this.focus();
     }
 
     showPrompt(more) {
-      const hadFocus = this.hasFocus();
+      const hadFocus = this.hasFocus() || this.refocus;
+      this.refocus = false;
+      this.waiting = false;
       this._removeEdit();
       this._ensureNewline();
       this.write(more ? '... ' : '>>> ', 'prompt');
@@ -221,6 +263,9 @@
     }
 
     stopped(message) {
+      // αν ο μαθητής έγραφε στο Shell, το focus ξαναγυρίζει εκεί μόλις εμφανιστεί το νέο >>>
+      this.refocus = this.refocus || this.hasFocus();
+      this.waiting = false;
       this._removeEdit();
       this.pasteQueue = [];
       this._ensureNewline();
@@ -278,14 +323,18 @@
     clear() {
       const prompt = this.atPrompt || this.mode === 'repl';
       const mode = this.mode;
+      const hadFocus = this.hasFocus();
       this.el.textContent = '';
       this.edit = null;
+      this.chars = 0;
+      this.trimNote = null;
       this.lastChar = '\n';
       if (prompt && mode === 'repl') {
         this.showPrompt(false);
       } else if (mode === 'running') {
         this._ensureEdit();
       }
+      if (hadFocus) this.focus();
     }
   }
 

@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS = {
   showVariables: true,
   showAssistant: true,
   showRecall: false,
+  runSpeed: 'normal',
   liveCheck: true,
   openFiles: [],
   activeFile: null,
@@ -178,7 +179,6 @@ ipcMain.handle('file:saveAs', async (_e, content, suggested) => {
 });
 
 ipcMain.handle('file:exists', (_e, p) => { try { return fs.statSync(p).isFile(); } catch (_) { return false; } });
-ipcMain.handle('file:showInFolder', (_e, p) => shell.showItemInFolder(p));
 ipcMain.handle('example:open', (_e, src) => {
   try { const dest = copyExample(src); addRecent(dest); return readSource(dest); } catch (e) { return { error: e.message }; }
 });
@@ -202,34 +202,51 @@ ipcMain.handle('dialog:unsaved', async (_e, names) => {
 ipcMain.handle('dialog:message', (_e, opts) => dialog.showMessageBox(win, { noLink: true, ...opts }));
 
 ipcMain.handle('dialog:choosePython', async () => {
+  const isWin = process.platform === 'win32';
   const r = await dialog.showOpenDialog(win, {
-    title: 'Επιλογή python.exe (Python 2.7)',
-    defaultPath: settings.pythonPath || 'C:\\',
-    filters: [{ name: 'python.exe', extensions: ['exe'] }],
+    title: isWin ? 'Επιλογή python.exe (Python 2.7)' : 'Επιλογή Python 2.7 (π.χ. /usr/bin/python2.7)',
+    defaultPath: settings.pythonPath || (isWin ? 'C:\\' : '/usr/bin'),
+    filters: isWin ? [{ name: 'python.exe', extensions: ['exe'] }] : [],
     properties: ['openFile'],
   });
   return r.canceled ? null : r.filePaths[0];
 });
 
 // --- Ρυθμίσεις / Python ---------------------------------------------------------
-ipcMain.handle('settings:get', () => ({ ...settings, workDir: workDir() }));
+ipcMain.handle('settings:get', () => ({ ...settings }));
 ipcMain.handle('settings:set', (_e, patch) => {
   const pythonChanged = patch.pythonPath !== undefined && patch.pythonPath !== settings.pythonPath;
   settings = { ...settings, ...patch };
   saveSettings();
-  if (['theme', 'minimap', 'wordWrap', 'showWhitespace', 'showVariables', 'showAssistant', 'showRecall', 'stringEncoding']
+  if (['theme', 'minimap', 'wordWrap', 'showWhitespace', 'showVariables', 'showAssistant', 'showRecall', 'runSpeed', 'stringEncoding']
     .some((k) => k in patch)) refreshMenu();
   if (pythonChanged) checker.reset();
   return settings;
 });
 ipcMain.handle('recall:get', () => fs.readFileSync(path.join(__dirname, '..', 'renderer', 'recall.md'), 'utf-8'));
-ipcMain.handle('python:info', () => pythonVersion(settings.pythonPath).then((v) => ({ ...v, path: settings.pythonPath })));
+ipcMain.handle('python:info', () => {
+  // αν η Python 2.7 εγκαταστάθηκε μετά την πρώτη εκκίνηση, βρίσκεται τώρα
+  if (!settings.pythonPath || !fs.existsSync(settings.pythonPath)) {
+    const found = findPython('');
+    if (found) { settings.pythonPath = found; saveSettings(); }
+  }
+  return pythonVersion(settings.pythonPath).then((v) => ({ ...v, path: settings.pythonPath, installScript: linuxInstallScript() }));
+});
+
+/** Linux: το script εγκατάστασης της Python 2.7 που συνοδεύει τα πακέτα (resources/install-python27.sh). */
+function linuxInstallScript() {
+  if (process.platform !== 'linux') return null;
+  const p = path.join(process.resourcesPath, 'install-python27.sh');
+  return fs.existsSync(p) ? p : null;
+}
 ipcMain.handle('python:test', (_e, p) => pythonVersion(p));
 
 // --- Εκτέλεση -------------------------------------------------------------------
-ipcMain.on('backend:run', (_e, { path: p, source }) => {
-  backend.run({ path: p, source, encoding: settings.stringEncoding });
+ipcMain.on('backend:run', (_e, { path: p, source, trace }) => {
+  backend.run({ path: p, source, encoding: settings.stringEncoding, trace });
 });
+ipcMain.on('backend:trace', (_e, opts) => backend.trace(opts));
+ipcMain.on('backend:step', () => backend.step());
 ipcMain.on('backend:shell', () => backend.shell({ cwd: workDir(), encoding: settings.stringEncoding }));
 ipcMain.on('backend:stop', () => backend.stop());
 ipcMain.on('backend:input', (_e, text) => backend.input(text));
