@@ -553,5 +553,22 @@ dialog button.primary { background: var(--accent); border-color: var(--accent); 
 .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .ok-text { color: var(--run); }
 .bad-text { color: var(--err); }
+/* ------------------------------------------------------------------ τάξη */
+#toolbar button.hand { display: none; }
+body.classroom-on #toolbar button.hand { display: inline-flex; }
+#toolbar button.hand .hand-icon { font-size: 17px; line-height: 1; filter: grayscale(1); opacity: 0.75; }
+body.hand-up #toolbar button.hand { background: var(--hint-bg); border-color: var(--hint-border); color: var(--hint-fg); font-weight: 600; }
+body.hand-up #toolbar button.hand .hand-icon { filter: none; opacity: 1; animation: hand-wave 1.6s ease-in-out infinite; }
+@keyframes hand-wave { 0%, 60%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(10deg); } }
+#toolbar.compact-2 button.hand span:not(.hand-icon) { display: none; }
+.st-class { font-weight: 600; cursor: pointer; white-space: nowrap; }
+.st-class.searching { color: var(--muted); }
+.st-class.connected { color: var(--accent); }
+.st-class.note { color: var(--hint-fg); }
+#dlg-classroom .cls-missing { display: none; white-space: pre-line; }
+#dlg-classroom.no-trust .cls-missing { display: block; }
+#dlg-classroom.no-trust .cls-ready { display: none; }
+#cls-pin { font-family: var(--font-mono); font-size: 20px; letter-spacing: 6px; width: 8em; }
+
 table.keys { border-collapse: collapse; width: 100%; font-size: 13px; }
 table.keys td { padding: 4px 6px; border-bottom: 1px solid var(--border); }

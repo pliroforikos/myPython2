@@ -57,6 +57,7 @@
     traced: false,       // η τρέχουσα εκτέλεση γίνεται βήμα-βήμα (με παρακολούθηση γραμμών)
     execIds: [],         // φωτισμός της γραμμής που εκτελείται
     pythonVersion: null,
+    classroom: { state: 'off', hand: false },   // σύνδεση με τον καθηγητή (μενού Τάξη)
 
     // ================================================================ εκκίνηση
     async init(monaco) {
@@ -69,12 +70,13 @@
       this.marks = new (ES().ErrorMarks)(monaco, this.editor);
       this.editor.onDidChangeCursorPosition((e) => {
         $('#st-pos').textContent = `Γρ ${e.position.lineNumber}, Στ ${e.position.column}`;
+        this.scheduleShare();
       });
       // Μέσα στον editor ο Monaco «πιάνει» κάποια πλήκτρα πριν από το μενού: F1 (παλέτα εντολών), F7/F8
       // (μετάβαση σε επισήμανση/λάθος), Ctrl+F2 (αλλαγή όλων των εμφανίσεων). Εδώ πηγαίνουν στις δικές μας εντολές.
       const K = monaco.KeyCode;
       const keys = [[K.F1, 'help'], [K.F5, 'run'], [K.F6, 'toggleVariables'], [K.F7, 'toggleAssistant'],
-        [K.F8, 'toggleRecall'], [K.F10, 'step'], [monaco.KeyMod.CtrlCmd | K.F2, 'stop']];
+        [K.F8, 'toggleRecall'], [K.F9, 'raiseHand'], [K.F10, 'step'], [monaco.KeyMod.CtrlCmd | K.F2, 'stop']];
       for (const [kb, cmd] of keys) this.editor.addCommand(kb, () => this.onMenu(cmd));
       // Ctrl+M: στον Monaco κάνει το Tab να βγάζει το focus από τον editor αντί να βάζει εσοχή
       this.editor.addCommand(monaco.KeyMod.CtrlCmd | K.KeyM, () => {});
@@ -123,6 +125,8 @@
       }, true);
       api.onMenu((id, arg) => this.onMenu(id, arg));
       api.backend.onMessage((msg) => this.onBackend(msg));
+      api.classroom.onStatus((s) => this.onClassroom(s));
+      this.bindClassroom();
 
       await this.restoreSession();
       this.startShell();
@@ -238,6 +242,7 @@
       this.renderTabs();
       this.updateTitle();
       this.persistSession();
+      this.scheduleShare();
     },
 
     isDirty(tab) { return tab.model.getAlternativeVersionId() !== tab.savedVersion; },
@@ -317,6 +322,7 @@
       if (this.marks.model === tab.model) this.marks.clear();
       this.renderTabsLazy();
       this.scheduleCheck(tab, 600);
+      if (tab === this.active) this.scheduleShare();
     },
 
     renderTabsLazy() {
@@ -338,6 +344,7 @@
         const res = await api.check(tab.model.getValue());
         if (tab.model.isDisposed() || tab.model.getVersionId() !== version) return;
         ES().setSyntaxMarkers(this.monaco, tab.model, res);
+        if (tab === this.active) this.scheduleShare();   // ο καθηγητής βλέπει και το λάθος σύνταξης
       }, delay);
     },
 
@@ -726,6 +733,10 @@
           $('#dlg-about').showModal();
           break;
         case 'requestClose': this.requestClose(); break;
+        case 'classroomJoin': this.joinClassroom(); break;
+        case 'classroomLeave': this.leaveClassroom(); break;
+        case 'raiseHand': this.toggleHand(); break;
+        case 'teacherMode': api.classroom.openTeacher(); break;
         default: break;
       }
     },
@@ -793,6 +804,125 @@
         activeFile: this.active && this.active.path,
       });
       api.closeNow();
+    },
+
+    // ================================================================ τάξη
+    classroomActive() { return ['searching', 'connecting', 'connected'].includes(this.classroom.state); },
+
+    bindClassroom() {
+      const pin = $('#cls-pin');
+      pin.addEventListener('input', () => { pin.value = pin.value.replace(/\D/g, '').slice(0, 4); });
+      $('#dlg-classroom form').addEventListener('submit', (e) => {
+        if (!e.submitter || e.submitter.value !== 'ok') return;
+        if (!/^\d{4}$/.test(pin.value)) {
+          e.preventDefault();
+          $('#cls-error').textContent = 'Γράψε το PIN: 4 ψηφία.';
+          pin.focus();
+        }
+      });
+      $('#st-class').addEventListener('click', () => {
+        if (this.classroomActive()) this.leaveClassroom();
+        else this.joinClassroom();
+      });
+    },
+
+    async joinClassroom() {
+      const info = await api.classroom.info();
+      const dlg = $('#dlg-classroom');
+      dlg.classList.toggle('no-trust', !info.ok);
+      $('#cls-cancel').textContent = info.ok ? 'Άκυρο' : 'Εντάξει';
+      $('#cls-teachers').textContent = info.ok
+        ? `${info.teachers.length > 1 ? 'Καθηγητές' : 'Καθηγητής'}: ${info.teachers.map((t) => (t.room ? `${t.name} (${t.room})` : t.name)).join(', ')}`
+        : '';
+      $('#cls-missing').textContent = info.ok ? '' : info.error === 'missing'
+        ? 'Αυτός ο υπολογιστής δεν έχει ρυθμιστεί ακόμα για τη λειτουργία «Τάξη».\n\n' +
+          `Ο καθηγητής ή ο διαχειριστής του εργαστηρίου πρέπει να αντιγράψει το αρχείο classroom.json εδώ:\n${info.file}`
+        : `Το αρχείο ${info.file} δεν είναι σωστό.\n${info.detail || ''}`;
+      $('#cls-name').value = info.name || '';
+      $('#cls-pin').value = '';
+      $('#cls-error').textContent = '';
+      dlg.returnValue = '';
+      dlg.showModal();
+      if (info.ok) $('#cls-pin').focus();
+      dlg.onclose = async () => {
+        if (dlg.returnValue !== 'ok' || !info.ok) return;
+        const r = await api.classroom.join($('#cls-name').value, $('#cls-pin').value);
+        if (!r.ok) this.joinClassroom();
+      };
+    },
+
+    async leaveClassroom() {
+      const r = await api.dialog.message({
+        type: 'question', title: 'Τάξη', message: 'Αποσύνδεση από την τάξη;',
+        detail: 'Ο καθηγητής δεν θα βλέπει πια τον κώδικά σου.', buttons: ['Αποσύνδεση', 'Άκυρο'], defaultId: 1, cancelId: 1,
+      });
+      if (r.response === 0) api.classroom.leave();
+    },
+
+    toggleHand() {
+      if (this.classroom.state === 'connected') api.classroom.hand(!this.classroom.hand);
+      else if (!this.classroomActive()) this.joinClassroom();
+    },
+
+    onClassroom(s) {
+      const was = this.classroom.state;
+      this.classroom = s;
+      document.body.classList.toggle('classroom-on', s.state === 'connected');
+      document.body.classList.toggle('hand-up', s.state === 'connected' && !!s.hand);
+      $('#btn-hand').title = s.hand ? 'Το χέρι σου είναι σηκωμένο. Πάτα για να το κατεβάσεις (F9)' : 'Σηκώνω χέρι: ζητώ βοήθεια από τον καθηγητή (F9)';
+      this.fitToolbar();
+      const st = $('#st-class');
+      st.hidden = !this.classroomActive();
+      st.className = 'st-class ' + (s.state === 'connected' ? 'connected' : 'searching');
+      if (s.state === 'connected') {
+        st.textContent = `👁 ${s.teacher ? s.teacher.name : 'Ο καθηγητής'} βλέπει τον κώδικά σου${s.hand ? ' · ✋' : ''}`;
+        st.title = `Συνδεδεμένος με την τάξη${s.teacher && s.teacher.room ? ` (${s.teacher.room})` : ''}. Κλικ για αποσύνδεση.`;
+      } else if (this.classroomActive()) {
+        st.textContent = '👁 Τάξη: αναζήτηση καθηγητή…';
+        st.title = 'Κλικ για αποσύνδεση';
+      }
+      if (s.state === 'connected' && was !== 'connected') this.shareCode();
+      if (s.lowered) {
+        st.textContent = '✋ Ο καθηγητής είδε ότι ζήτησες βοήθεια';
+        st.className = 'st-class note';
+        clearTimeout(this.noteTimer);
+        this.noteTimer = setTimeout(() => { if (this.classroomActive()) this.onClassroom({ ...this.classroom, lowered: false }); }, 6000);
+      }
+      const why = {
+        pin: 'Λάθος PIN. Δες ξανά τα 4 ψηφία στην οθόνη του καθηγητή.',
+        blocked: 'Πολλές λάθος προσπάθειες. Περίμενε ένα λεπτό και ξαναδοκίμασε.',
+        version: 'Ο καθηγητής έχει διαφορετική έκδοση της εφαρμογής.',
+      };
+      if (s.state === 'rejected') {
+        api.dialog.message({ type: 'warning', title: 'Τάξη', message: 'Ο καθηγητής δεν δέχτηκε τη σύνδεση.', detail: why[s.reason] || '', buttons: ['Εντάξει'] })
+          .then(() => { if (s.reason === 'pin') this.joinClassroom(); });
+      } else if (s.state === 'kicked') {
+        api.dialog.message({ type: 'info', title: 'Τάξη', message: 'Ο καθηγητής σε αποσύνδεσε από την τάξη.', buttons: ['Εντάξει'] });
+      }
+    },
+
+    scheduleShare() {
+      if (!this.classroomActive()) return;
+      clearTimeout(this.shareTimer);
+      this.shareTimer = setTimeout(() => this.shareCode(), 500);
+    },
+
+    /** Ο κώδικας της ενεργής καρτέλας, η θέση του κέρσορα και τα λάθη της, προς τον καθηγητή. */
+    shareCode() {
+      const tab = this.active;
+      if (!this.classroomActive() || !tab || tab.model.isDisposed()) return;
+      const m = this.monaco;
+      const pos = this.editor.getModel() === tab.model ? this.editor.getPosition() : null;
+      const errors = m.editor.getModelMarkers({ resource: tab.model.uri })
+        .filter((x) => x.severity === m.MarkerSeverity.Error)
+        .slice(0, 10)
+        .map((x) => ({ line: x.startLineNumber, message: x.message }));
+      api.classroom.code({
+        file: tab.title,
+        text: tab.model.getValue(),
+        cursor: pos ? { line: pos.lineNumber, column: pos.column } : null,
+        errors,
+      });
     },
 
     // ================================================================ ρυθμίσεις

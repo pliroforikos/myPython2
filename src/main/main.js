@@ -1,10 +1,13 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, Notification, shell } = require('electron');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { Backend, Checker, findPython, pythonVersion } = require('./pythonProcess');
 const { decodeBuffer, encodeForSave } = require('./encoding');
 const { buildMenu, examplesDir } = require('./menu');
+const { TeacherServer, StudentClient, loadTrust, buildTrustFile, trustFilePath, lanAddresses, newPin } = require('./classroom');
+const { generateIdentity, fingerprint } = require('./classroomCert');
 
 const DEFAULT_SETTINGS = {
   pythonPath: '',
@@ -25,6 +28,7 @@ const DEFAULT_SETTINGS = {
   recentFiles: [],
   layout: {},
   window: { width: 1300, height: 840, maximized: false },
+  classroom: { studentName: '', teacherName: '', room: '' },
 };
 
 let win = null;
@@ -109,6 +113,7 @@ function refreshMenu() {
     examples: listExamples(),
     recent: settings.recentFiles,
     openRecent: (p) => sendMenu('openPath', p),
+    classroom: studentStatus,
   }));
 }
 
@@ -255,6 +260,172 @@ ipcMain.handle('check', (_e, source) => checker.check(source, settings.stringEnc
 
 ipcMain.on('app:closeNow', () => { forceClose = true; if (win) win.close(); });
 
+// --- Τάξη: μαθητής ----------------------------------------------------------------
+let student = null;
+let studentStatus = { state: 'off' };
+
+function onStudentStatus(status) {
+  studentStatus = status;
+  if (win && !win.isDestroyed()) win.webContents.send('classroom', status);
+  refreshMenu();
+}
+
+ipcMain.handle('classroom:info', () => {
+  const trust = loadTrust();
+  return {
+    ok: trust.ok,
+    file: trust.file,
+    error: trust.error || null,
+    detail: trust.detail || null,
+    teachers: trust.ok ? trust.teachers.map((t) => ({ name: t.name, room: t.room })) : [],
+    name: settings.classroom.studentName || os.userInfo().username,
+    status: studentStatus,
+  };
+});
+
+ipcMain.handle('classroom:join', (_e, { name, pin }) => {
+  const trust = loadTrust();
+  if (!trust.ok) return { ok: false, error: trust.error };
+  if (student) student.stop();
+  name = String(name || '').trim().slice(0, 80) || os.userInfo().username;
+  settings.classroom = { ...settings.classroom, studentName: name };
+  saveSettings();
+  student = new StudentClient({ trust, name, pin: String(pin || '').trim() });
+  student.on('status', onStudentStatus);
+  student.start();
+  return { ok: true };
+});
+ipcMain.on('classroom:leave', () => { if (student) student.leave(); student = null; });
+ipcMain.on('classroom:code', (_e, payload) => { if (student) student.sendCode(payload || {}); });
+ipcMain.on('classroom:hand', (_e, up) => { if (student) student.setHand(!!up); });
+ipcMain.on('classroom:teacher', () => openTeacherWindow());
+
+// --- Τάξη: καθηγητής ---------------------------------------------------------------
+let teacherWin = null;
+let teacher = null;
+
+/** Το κλειδί του καθηγητή φτιάχνεται μία φορά και μένει στο προφίλ του (το αποτύπωμά του είναι στο classroom.json). */
+function teacherIdentity() {
+  const file = path.join(app.getPath('userData'), 'classroom-teacher.json');
+  try {
+    const id = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return { keyPem: id.keyPem, certPem: id.certPem, fingerprint: fingerprint(id.keyPem) };
+  } catch (_) { /* νέα ταυτότητα */ }
+  const id = generateIdentity();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ keyPem: id.keyPem, certPem: id.certPem }, null, 2), { encoding: 'utf-8', mode: 0o600 });
+  return id;
+}
+
+function sendTeacher(type, data) {
+  if (teacherWin && !teacherWin.isDestroyed()) teacherWin.webContents.send('teacher', type, data);
+}
+
+function stopTeacher() {
+  if (teacher) teacher.stop();
+  teacher = null;
+}
+
+function openTeacherWindow() {
+  if (teacherWin && !teacherWin.isDestroyed()) { teacherWin.focus(); return; }
+  teacherWin = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 700,
+    minHeight: 480,
+    title: 'Τάξη – Python 2.7 ΕΠΑΛ',
+    backgroundColor: settings.theme === 'dark' ? '#1e1f22' : '#ffffff',
+    icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  });
+  teacherWin.setMenu(null);
+  teacherWin.loadFile(path.join(__dirname, '..', 'renderer', 'teacher.html'));
+  teacherWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  teacherWin.webContents.on('will-navigate', (e) => e.preventDefault());
+  teacherWin.on('closed', () => { stopTeacher(); teacherWin = null; });
+}
+
+const fromTeacher = (e) => !!teacherWin && !teacherWin.isDestroyed() && e.sender === teacherWin.webContents;
+
+ipcMain.handle('teacher:defaults', () => ({
+  name: settings.classroom.teacherName || os.userInfo().username,
+  room: settings.classroom.room || '',
+}));
+
+ipcMain.handle('teacher:start', async (e, { name, room }) => {
+  if (!fromTeacher(e)) return { ok: false };
+  settings.classroom = { ...settings.classroom, teacherName: String(name || '').trim(), room: String(room || '').trim() };
+  saveSettings();
+  stopTeacher();
+  let id;
+  try { id = teacherIdentity(); } catch (err) { return { ok: false, error: `Δεν δημιουργήθηκε το κλειδί του καθηγητή: ${err.message}` }; }
+  const server = new TeacherServer({ keyPem: id.keyPem, certPem: id.certPem });
+  server.on('student', (s) => sendTeacher('student', s));
+  server.on('remove', (r) => sendTeacher('remove', r));
+  server.on('hand', (s) => {
+    sendTeacher('hand', s);
+    if (teacherWin && !teacherWin.isFocused()) teacherWin.flashFrame(true);
+    if (Notification.isSupported()) {
+      const n = new Notification({ title: '✋ Χέρι σηκωμένο', body: `${s.name} (${s.host}) ζητά βοήθεια`, silent: true });
+      n.on('click', () => { if (teacherWin) { teacherWin.show(); teacherWin.focus(); sendTeacher('select', s.id); } });
+      n.show();
+    }
+  });
+  server.on('error', (err) => sendTeacher('error', err.message));
+  try {
+    await server.start();
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.code === 'EADDRINUSE'
+        ? `Η θύρα ${err.port || ''} χρησιμοποιείται ήδη. Μήπως η λειτουργία καθηγητή είναι ήδη ανοιχτή σε άλλο παράθυρο;`
+        : err.message,
+    };
+  }
+  teacher = server;
+  return { ok: true, pin: server.pin, fingerprint: id.fingerprint, port: server.port, addresses: lanAddresses().map((a) => a.address) };
+});
+
+ipcMain.handle('teacher:newPin', (e) => {
+  if (!fromTeacher(e) || !teacher) return null;
+  teacher.pin = newPin();   // όσοι είναι ήδη συνδεδεμένοι μένουν
+  return teacher.pin;
+});
+ipcMain.on('teacher:lower', (e, id) => { if (fromTeacher(e) && teacher) teacher.lowerHand(id); });
+ipcMain.on('teacher:remove', (e, id) => { if (fromTeacher(e) && teacher) teacher.remove(id); });
+ipcMain.on('teacher:stop', (e) => { if (fromTeacher(e)) stopTeacher(); });
+
+ipcMain.handle('teacher:export', async (e) => {
+  if (!fromTeacher(e)) return null;
+  const id = teacherIdentity();
+  const r = await dialog.showSaveDialog(teacherWin, {
+    title: 'Αρχείο classroom.json για τους υπολογιστές των μαθητών',
+    defaultPath: path.join(app.getPath('documents'), 'classroom.json'),
+    filters: [{ name: 'classroom.json', extensions: ['json'] }],
+  });
+  if (r.canceled || !r.filePath) return null;
+  let existing = null;
+  try { existing = JSON.parse(fs.readFileSync(r.filePath, 'utf-8').replace(/^﻿/, '')); } catch (_) { /* νέο αρχείο */ }
+  const data = buildTrustFile(existing, {
+    name: settings.classroom.teacherName || os.userInfo().username,
+    room: settings.classroom.room,
+    fingerprint: id.fingerprint,
+  }, lanAddresses().map((a) => a.address));
+  try {
+    fs.writeFileSync(r.filePath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  return { ok: true, path: r.filePath, target: trustFilePath(), teachers: data.teachers.length };
+});
+
 // --- Παράθυρο -------------------------------------------------------------------
 function createWindow() {
   const w = settings.window || {};
@@ -303,7 +474,10 @@ function createWindow() {
       win.webContents.send('menu', 'requestClose');
     }
   });
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => {
+    win = null;
+    if (teacherWin && !teacherWin.isDestroyed()) teacherWin.close();
+  });
 
   if (process.env.EPAL_DEBUG) {
     win.webContents.on('console-message', (e, level, message) => {
@@ -345,6 +519,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    if (process.platform === 'win32') app.setAppUserModelId('gr.epal.python2');   // ειδοποιήσεις «χέρι σηκωμένο»
     loadSettings();
     refreshMenu();
     createWindow();
@@ -355,6 +530,8 @@ if (!gotLock) {
   app.on('window-all-closed', () => {
     backend.stop();
     checker.dispose();
+    if (student) student.stop();
+    stopTeacher();
     clearTimeout(saveTimer);
     try { fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2), 'utf-8'); } catch (_) { /* */ }
     app.quit();

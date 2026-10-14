@@ -29,6 +29,7 @@
     <button data-cmd="zoomIn" title="Μεγαλύτερα γράμματα (Ctrl +)" class="icon-only"><span class="txt big">A+</span></button>
     <button data-cmd="toggleTheme" title="Φωτεινό / σκοτεινό θέμα" class="icon-only"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
     <div class="spacer"></div>
+    <button data-cmd="raiseHand" id="btn-hand" class="hand" title="Σηκώνω χέρι: ζητώ βοήθεια από τον καθηγητή (F9)"><span class="hand-icon">✋</span><span>Σηκώνω χέρι</span></button>
     <button data-cmd="toggleVariables" title="Μεταβλητές (F6)" class="toggle" id="btn-vars"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 10h16M10 10v9" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span>Μεταβλητές</span></button>
     <button data-cmd="toggleAssistant" title="Βοηθός (F7)" class="toggle" id="btn-assist"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Βοηθός</span></button>
     <button data-cmd="toggleRecall" title="Θέλω να θυμηθώ: αλγόριθμοι και εντολές (F8)" class="toggle" id="btn-recall"><svg viewBox="0 0 24 24"><path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5zM12 6.5v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span>Θέλω να θυμηθώ</span></button>
@@ -73,6 +74,7 @@
     <span id="st-state" class="st-state idle">● Έτοιμο</span>
     <span id="st-file" class="st-file"></span>
     <span class="spacer"></span>
+    <span id="st-class" class="st-class" hidden></span>
     <span id="st-pos"></span>
     <span id="st-enc" title="Κωδικοποίηση ελληνικών κατά την εκτέλεση"></span>
     <span id="st-py"></span>
@@ -110,6 +112,31 @@
       <div class="buttons">
         <button value="cancel">Άκυρο</button>
         <button value="ok" class="primary">Αποθήκευση</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Τάξη -->
+  <dialog id="dlg-classroom">
+    <form method="dialog">
+      <h2>Σύνδεση στην τάξη</h2>
+      <div class="cls-ready">
+        <p>Ο καθηγητής θα βλέπει <b>ζωντανά τον κώδικα που γράφεις</b> και θα μπορείς να <b>σηκώνεις χέρι ✋</b>
+          (<kbd>F9</kbd>) όταν θέλεις βοήθεια. Όσο είσαι συνδεδεμένος, αυτό φαίνεται κάτω δεξιά.</p>
+        <p id="cls-teachers" class="muted"></p>
+        <label class="field">Το όνομά σου
+          <input type="text" id="cls-name" maxlength="80" spellcheck="false">
+        </label>
+        <label class="field">PIN της τάξης
+          <input type="text" id="cls-pin" maxlength="4" inputmode="numeric" autocomplete="off" spellcheck="false">
+          <small>Τα 4 ψηφία που δείχνει η οθόνη του καθηγητή.</small>
+        </label>
+        <small id="cls-error" class="bad-text"></small>
+      </div>
+      <p class="cls-missing" id="cls-missing"></p>
+      <div class="buttons">
+        <button value="cancel" id="cls-cancel">Άκυρο</button>
+        <button value="ok" class="primary cls-ready">Σύνδεση</button>
       </div>
     </form>
   </dialog>
@@ -157,10 +184,14 @@
         <h3>Αρχεία</h3>
         <p>Τα αρχεία που ανοίγει το πρόγραμμά σου με <code>open('dedomena.txt')</code> ή οι βάσεις <code>sqlite3.connect('vasi.db')</code>
           βρίσκονται <b>στον ίδιο φάκελο με το πρόγραμμα</b>. Τα νέα προγράμματα αποθηκεύονται από προεπιλογή στον φάκελο <code>Python2</code> μέσα στα <b>Έγγραφα</b>.</p>
+        <h3>Τάξη</h3>
+        <p>Στο εργαστήριο, από το μενού <b>Τάξη → Σύνδεση στην τάξη</b> (με το PIN που δείχνει ο καθηγητής) ο καθηγητής βλέπει
+          ζωντανά τον κώδικα που γράφεις. Όταν θέλεις βοήθεια, πάτησε <b>✋ Σηκώνω χέρι</b> ή <kbd>F9</kbd>· ξαναπάτησέ το για να το κατεβάσεις.
+          Όσο είσαι συνδεδεμένος, κάτω δεξιά γράφει <b>👁 … βλέπει τον κώδικά σου</b>· κλικ εκεί για αποσύνδεση.</p>
         <h3>Συντομεύσεις</h3>
         <table class="keys">
           <tr><td><kbd>F5</kbd></td><td>Εκτέλεση</td><td><kbd>Ctrl</kbd>+<kbd>F2</kbd></td><td>Διακοπή</td></tr>
-          <tr><td><kbd>F10</kbd></td><td>Επόμενη γραμμή (βήμα-βήμα)</td><td></td><td></td></tr>
+          <tr><td><kbd>F10</kbd></td><td>Επόμενη γραμμή (βήμα-βήμα)</td><td><kbd>F9</kbd></td><td>Σηκώνω χέρι (Τάξη)</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Αποθήκευση</td><td><kbd>Ctrl</kbd>+<kbd>N</kbd> / <kbd>O</kbd></td><td>Νέο / Άνοιγμα</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>/</kbd></td><td>Σχόλιο σε γραμμές</td><td><kbd>Ctrl</kbd>+<kbd>F</kbd> / <kbd>H</kbd></td><td>Εύρεση / Αντικατάσταση</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>Space</kbd></td><td>Προτάσεις (autocomplete)</td><td><kbd>Ctrl</kbd>+<kbd>.</kbd></td><td>Γρήγορη διόρθωση</td></tr>

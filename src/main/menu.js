@@ -8,7 +8,7 @@ const path = require('path');
  */
 const SPEEDS = [['step', 'Γραμμή γραμμή'], ['slow', 'Αργή'], ['medium', 'Μέτρια'], ['normal', 'Κανονική']];
 
-function buildMenu({ send, settings, examples, recent, openRecent }) {
+function buildMenu({ send, settings, examples, recent, openRecent, classroom = { state: 'off' } }) {
   const cmd = (id, label, accelerator, extra = {}) => ({
     label, ...(accelerator ? { accelerator } : {}), click: () => send(id), ...extra,
   });
@@ -107,6 +107,18 @@ function buildMenu({ send, settings, examples, recent, openRecent }) {
       submenu: examples.length
         ? examples.map((ex) => ({ label: ex.title, click: () => send('example', ex.file) }))
         : [{ label: '(κανένα)', enabled: false }],
+    },
+    {
+      label: '&Τάξη',
+      submenu: [
+        ['searching', 'connecting', 'connected'].includes(classroom.state)
+          ? cmd('classroomLeave', 'Αποσύνδεση από την τάξη', '')
+          : cmd('classroomJoin', 'Σύνδεση στην τάξη…', ''),
+        cmd('raiseHand', 'Σηκώνω χέρι ✋', 'F9',
+          { type: 'checkbox', checked: !!classroom.hand, enabled: classroom.state === 'connected' }),
+        { type: 'separator' },
+        cmd('teacherMode', 'Λειτουργία καθηγητή…', ''),
+      ],
     },
     {
       label: '&Βοήθεια',
