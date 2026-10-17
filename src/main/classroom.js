@@ -118,6 +118,17 @@ function buildTrustFile(existing, teacher, hosts = []) {
   };
 }
 
+/**
+ * Η λειτουργία καθηγητή δεν υπάρχει στους υπολογιστές των μαθητών, δηλαδή σε όσους έχουν classroom.json.
+ * Εξαίρεση: ο υπολογιστής ενός καθηγητή που έχει κι αυτός classroom.json με το δικό του κλειδί (ownFingerprint).
+ * Ένα classroom.json που υπάρχει αλλά είναι χαλασμένο μετράει κι αυτό ως υπολογιστής μαθητή.
+ */
+function teacherModeAllowed(trust, ownFingerprint) {
+  if (!trust.ok) return trust.error === 'missing';
+  const own = ownFingerprint ? normalizeFingerprint(ownFingerprint) : '';
+  return own.length === 64 && trust.teachers.some((t) => t.fingerprint === own);
+}
+
 const newPin = () => String(crypto.randomInt(0, 10000)).padStart(4, '0');
 
 // ---------------------------------------------------------------- καθηγητής
@@ -446,6 +457,6 @@ class StudentClient extends EventEmitter {
 }
 
 module.exports = {
-  TeacherServer, StudentClient, loadTrust, buildTrustFile, trustFilePath, lanAddresses, frameReader, newPin,
+  TeacherServer, StudentClient, loadTrust, buildTrustFile, trustFilePath, lanAddresses, frameReader, newPin, teacherModeAllowed,
   DEFAULT_PORT, DISCOVERY_PORT,
 };

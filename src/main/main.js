@@ -6,7 +6,7 @@ const path = require('path');
 const { Backend, Checker, findPython, pythonVersion } = require('./pythonProcess');
 const { decodeBuffer, encodeForSave } = require('./encoding');
 const { buildMenu, examplesDir } = require('./menu');
-const { TeacherServer, StudentClient, loadTrust, buildTrustFile, trustFilePath, lanAddresses, newPin } = require('./classroom');
+const { TeacherServer, StudentClient, loadTrust, buildTrustFile, trustFilePath, lanAddresses, newPin, teacherModeAllowed } = require('./classroom');
 const { generateIdentity, fingerprint } = require('./classroomCert');
 
 const DEFAULT_SETTINGS = {
@@ -114,6 +114,7 @@ function refreshMenu() {
     recent: settings.recentFiles,
     openRecent: (p) => sendMenu('openPath', p),
     classroom: studentStatus,
+    teacherMode: teacherAllowed(),
   }));
 }
 
@@ -298,7 +299,7 @@ ipcMain.handle('classroom:join', (_e, { name, pin }) => {
 ipcMain.on('classroom:leave', () => { if (student) student.leave(); student = null; });
 ipcMain.on('classroom:code', (_e, payload) => { if (student) student.sendCode(payload || {}); });
 ipcMain.on('classroom:hand', (_e, up) => { if (student) student.setHand(!!up); });
-ipcMain.on('classroom:teacher', () => openTeacherWindow());
+ipcMain.on('classroom:teacher', () => { if (teacherAllowed()) openTeacherWindow(); });
 
 // --- Τάξη: καθηγητής ---------------------------------------------------------------
 let teacherWin = null;
@@ -317,6 +318,18 @@ function teacherIdentity() {
   return id;
 }
 
+/** Το αποτύπωμα του κλειδιού του καθηγητή αυτού του υπολογιστή, χωρίς να φτιαχτεί νέο κλειδί (ή null). */
+function ownTeacherFingerprint() {
+  try {
+    return fingerprint(JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'classroom-teacher.json'), 'utf-8')).keyPem);
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Όχι λειτουργία καθηγητή σε υπολογιστή μαθητή (με classroom.json που δεν έχει το κλειδί αυτού του υπολογιστή). */
+const teacherAllowed = () => teacherModeAllowed(loadTrust(), ownTeacherFingerprint());
+
 function sendTeacher(type, data) {
   if (teacherWin && !teacherWin.isDestroyed()) teacherWin.webContents.send('teacher', type, data);
 }
@@ -327,6 +340,7 @@ function stopTeacher() {
 }
 
 function openTeacherWindow() {
+  if (!teacherAllowed()) return;
   if (teacherWin && !teacherWin.isDestroyed()) { teacherWin.focus(); return; }
   teacherWin = new BrowserWindow({
     width: 1280,
@@ -360,7 +374,7 @@ ipcMain.handle('teacher:defaults', () => ({
 }));
 
 ipcMain.handle('teacher:start', async (e, { name, room }) => {
-  if (!fromTeacher(e)) return { ok: false };
+  if (!fromTeacher(e) || !teacherAllowed()) return { ok: false, error: 'Σε υπολογιστή μαθητή δεν υπάρχει λειτουργία καθηγητή.' };
   settings.classroom = { ...settings.classroom, teacherName: String(name || '').trim(), room: String(room || '').trim() };
   saveSettings();
   stopTeacher();

@@ -33,6 +33,21 @@ async function classroom(t, { trustFp = teacherId.fingerprint, pin = '1234', stu
   return { server, student };
 }
 
+test('λειτουργία καθηγητή: όχι σε υπολογιστή μαθητή (με classroom.json)', () => {
+  const other = generateIdentity();
+  const trust = { ok: true, teachers: [{ name: 'Λ. Προκόπης', fingerprint: normalizeFingerprint(teacherId.fingerprint) }] };
+  // χωρίς classroom.json: υπολογιστής καθηγητή
+  assert.strictEqual(C.teacherModeAllowed({ ok: false, error: 'missing' }, null), true);
+  // classroom.json που υπάρχει αλλά είναι χαλασμένο: υπολογιστής μαθητή
+  assert.strictEqual(C.teacherModeAllowed({ ok: false, error: 'invalid' }, teacherId.fingerprint), false);
+  // classroom.json χωρίς το κλειδί αυτού του υπολογιστή: υπολογιστής μαθητή
+  assert.strictEqual(C.teacherModeAllowed(trust, null), false);
+  assert.strictEqual(C.teacherModeAllowed(trust, other.fingerprint), false);
+  // ο καθηγητής του classroom.json στον δικό του υπολογιστή (αποτύπωμα σε οποιαδήποτε μορφή)
+  assert.strictEqual(C.teacherModeAllowed(trust, teacherId.fingerprint), true);
+  assert.strictEqual(C.teacherModeAllowed(trust, teacherId.fingerprint.toUpperCase()), true);
+});
+
 test('frameReader: γραμμές JSON σε κομμάτια, αγνοεί τα άκυρα', () => {
   const got = [];
   const feed = C.frameReader((m) => got.push(m), () => got.push('overflow'));
