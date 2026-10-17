@@ -55,7 +55,10 @@
       ES().init(monaco);
       this.theme = settings.theme === 'dark' ? 'idle-dark' : 'idle-light';
       monaco.editor.setTheme(this.theme);   // και για τα χρώματα της προεπισκόπησης στις κάρτες
-      this.fontSize = settings.fontSize;
+      this.defaultFont = settings.fontSize;
+      // μέγεθος γραμμάτων και αναδίπλωση της προβολής κώδικα: ρυθμίσεις του καθηγητή, θυμούνται την τελευταία επιλογή
+      this.fontSize = Number(this.stored('teacher.fontSize')) || settings.fontSize;
+      this.wordWrap = this.stored('teacher.wordWrap') === 'on';
 
       const d = await api.teacher.defaults();
       $('#t-name').value = d.name;
@@ -70,9 +73,24 @@
       $('#t-filter').addEventListener('input', () => this.render());
       $('#t-detail-close').addEventListener('click', () => this.select(null));
       $('#t-detail-lower').addEventListener('click', () => { if (this.selected) api.teacher.lowerHand(this.selected); });
+      $('#t-font-down').addEventListener('click', () => this.setFont(this.fontSize - 1));
+      $('#t-font-up').addEventListener('click', () => this.setFont(this.fontSize + 1));
+      $('#t-font-size').addEventListener('click', () => this.setFont(this.defaultFont));
+      $('#t-wrap').addEventListener('click', () => this.setWrap(!this.wordWrap));
+      this.showViewSettings();
       window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && this.selected && !document.querySelector('dialog[open]')) this.select(null);
-      });
+        if (!e.ctrlKey || !this.selected) return;
+        if (e.key === '+' || e.key === '=') { e.preventDefault(); this.setFont(this.fontSize + 1); }
+        else if (e.key === '-') { e.preventDefault(); this.setFont(this.fontSize - 1); }
+        else if (e.key === '0') { e.preventDefault(); this.setFont(this.defaultFont); }
+      }, true);
+      $('#t-editor').addEventListener('wheel', (e) => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.setFont(this.fontSize + (e.deltaY < 0 ? 1 : -1));
+      }, { capture: true, passive: false });
       setInterval(() => this.refreshTimes(), 10000);
     },
 
@@ -255,6 +273,33 @@
     },
 
     // ------------------------------------------------------------ λεπτομέρειες
+    stored(key) {
+      try { return localStorage.getItem(key); } catch (_) { return null; }
+    },
+
+    store(key, value) {
+      try { localStorage.setItem(key, String(value)); } catch (_) { /* χωρίς αποθήκευση */ }
+    },
+
+    setFont(size) {
+      this.fontSize = Math.max(10, Math.min(40, size));
+      this.store('teacher.fontSize', this.fontSize);
+      if (this.editor) this.editor.updateOptions({ fontSize: this.fontSize });
+      this.showViewSettings();
+    },
+
+    setWrap(on) {
+      this.wordWrap = on;
+      this.store('teacher.wordWrap', on ? 'on' : 'off');
+      if (this.editor) this.editor.updateOptions({ wordWrap: on ? 'on' : 'off' });
+      this.showViewSettings();
+    },
+
+    showViewSettings() {
+      $('#t-font-size').textContent = String(this.fontSize);
+      $('#t-wrap').classList.toggle('on', this.wordWrap);
+    },
+
     select(id) {
       this.selected = id;
       const s = id != null ? this.students.get(id) : null;
@@ -264,7 +309,7 @@
       if (!s) return;
       if (!this.editor) {
         this.editor = this.monaco.editor.create($('#t-editor'), {
-          ...ES().editorOptions({ theme: document.body.classList.contains('theme-dark') ? 'dark' : 'light', fontSize: this.fontSize, minimap: true }),
+          ...ES().editorOptions({ theme: document.body.classList.contains('theme-dark') ? 'dark' : 'light', fontSize: this.fontSize, minimap: true, wordWrap: this.wordWrap }),
           readOnly: true,
           domReadOnly: true,
           model: this.monaco.editor.createModel('', ES().LANG),

@@ -103,3 +103,10 @@ body.detail-open #t-grid { flex: 0 0 38%; grid-template-columns: repeat(auto-fil
 .student-line { background: var(--sel-row); }
 .student-caret { border-left: 2px solid var(--accent); margin-left: -1px; }
 .error-line { background: var(--error-line); }
+
+/* μέγεθος γραμμάτων και αναδίπλωση στην προβολή κώδικα */
+.t-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.t-zoom .mini { font-size: 13px; font-weight: 600; min-width: 30px; }
+.t-zoom .t-font-size { font-weight: 400; color: var(--muted); min-width: 34px; }
+body.teacher .t-wrap { font-size: 13px; }
+body.teacher .t-wrap.on { background: var(--sel-row); color: var(--fg); border-color: var(--border); }
