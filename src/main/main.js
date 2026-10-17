@@ -115,6 +115,8 @@ function refreshMenu() {
     openRecent: (p) => sendMenu('openPath', p),
     classroom: studentStatus,
     teacherMode: teacherAllowed(),
+    present: teacher ? presentState : null,
+    setPresent,
   }));
 }
 
@@ -293,6 +295,8 @@ ipcMain.handle('classroom:join', (_e, { name, pin }) => {
   saveSettings();
   student = new StudentClient({ trust, name, pin: String(pin || '').trim() });
   student.on('status', onStudentStatus);
+  student.on('present', (p) => { if (win && !win.isDestroyed()) win.webContents.send('present', p); });
+  student.on('present-out', (o) => { if (win && !win.isDestroyed()) win.webContents.send('present-out', o); });
   student.start();
   return { ok: true };
 });
@@ -337,7 +341,40 @@ function sendTeacher(type, data) {
 function stopTeacher() {
   if (teacher) teacher.stop();
   teacher = null;
+  setPresent({ on: false });
 }
+
+// Παρουσίαση: οι μαθητές βλέπουν την ενεργή καρτέλα του κύριου παραθύρου του καθηγητή και την έξοδό της.
+let presentState = { on: false, locked: false, copy: true };
+
+function setPresent(patch) {
+  const next = { ...presentState, ...patch };
+  if (!teacher) next.on = false;
+  if (!next.on) next.locked = false;   // κάθε νέα παρουσίαση ξεκινά χωρίς κλείδωμα
+  const started = next.on && !presentState.on;
+  presentState = next;
+  if (teacher) {
+    if (next.on) teacher.present({ ...(started ? { on: true } : {}), locked: next.locked, copy: next.copy });
+    else teacher.present({ on: false });
+  }
+  // το κύριο παράθυρο στέλνει τον κώδικα και την έξοδο όσο η παρουσίαση είναι ανοιχτή (στο ξεκίνημα: όλα από την αρχή)
+  if (win && !win.isDestroyed()) win.webContents.send('present-state', { ...presentState, started });
+  sendTeacher('present', presentState);
+  refreshMenu();
+}
+
+const fromMain = (e) => !!win && !win.isDestroyed() && e.sender === win.webContents;
+ipcMain.on('present:code', (e, payload) => {
+  if (!fromMain(e) || !teacher || !presentState.on || !payload || typeof payload !== 'object') return;
+  const { file, text, view } = payload;   // ό,τι άλλο (on, locked, copy) το ορίζει μόνο το setPresent
+  teacher.present({ ...(file !== undefined ? { file } : {}), ...(text !== undefined ? { text } : {}), ...(view !== undefined ? { view } : {}) });
+});
+ipcMain.on('present:out', (e, out) => { if (fromMain(e) && teacher && presentState.on) teacher.presentOutput(out); });
+ipcMain.on('present:set', (e, patch) => {
+  if ((fromMain(e) || fromTeacher(e)) && patch && typeof patch === 'object') {
+    setPresent({ ...('on' in patch ? { on: !!patch.on } : {}), ...('locked' in patch ? { locked: !!patch.locked } : {}), ...('copy' in patch ? { copy: !!patch.copy } : {}) });
+  }
+});
 
 function openTeacherWindow() {
   if (!teacherAllowed()) return;
@@ -404,6 +441,7 @@ ipcMain.handle('teacher:start', async (e, { name, room }) => {
     };
   }
   teacher = server;
+  refreshMenu();   // μενού Τάξη → Παρουσίαση
   return { ok: true, pin: server.pin, fingerprint: id.fingerprint, port: server.port, addresses: lanAddresses().map((a) => a.address) };
 });
 

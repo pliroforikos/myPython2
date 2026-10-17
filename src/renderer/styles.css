@@ -40,6 +40,7 @@
   --error-line: rgba(229, 72, 77, 0.14);
   --exec-line: rgba(255, 196, 0, 0.32);
   --exec-mark: #d49b00;
+  --present-sel: rgba(47, 111, 214, 0.25);
   --scroll-thumb: #c9ced6;
 }
 body.theme-dark {
@@ -76,6 +77,7 @@ body.theme-dark {
   --error-line: rgba(255, 99, 99, 0.18);
   --exec-line: rgba(255, 196, 0, 0.22);
   --exec-mark: #f2c14e;
+  --present-sel: rgba(92, 156, 245, 0.35);
   --scroll-thumb: #4a4d52;
 }
 
@@ -196,7 +198,7 @@ body.running #toolbar button.run { opacity: 0.85; }
 
 /* ------------------------------------------------------------------ διάταξη */
 #main { flex: 1; display: flex; min-height: 0; }
-#center { flex: 1; display: flex; flex-direction: column; min-width: 300px; }
+#center { flex: 1; display: flex; flex-direction: column; min-width: 300px; position: relative; }
 #editor-host { flex: 1; min-height: 80px; position: relative; overflow: hidden; }
 #shell-panel { flex: none; height: 34%; min-height: 70px; display: flex; flex-direction: column; }
 #side { flex: none; width: 340px; min-width: 200px; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
@@ -305,7 +307,7 @@ button.mini.close:hover { color: var(--fg); }
 }
 
 /* ------------------------------------------------------------------ shell */
-#shell {
+#shell, #pr-shell {
   flex: 1;
   overflow: auto;
   padding: 6px 10px 20px;
@@ -317,16 +319,16 @@ button.mini.close:hover { color: var(--fg); }
   outline: none;
   cursor: text;
 }
-#shell .out { color: var(--fg); }
-#shell .stderr, #shell .err { color: var(--err); }
-#shell .prompt { color: var(--prompt); }
-#shell .command { color: var(--command); font-weight: 600; }
-#shell .user-input { color: var(--input); font-weight: 600; }
-#shell .repl-input { color: var(--repl-input); }
-#shell .info { color: var(--info); font-style: italic; }
+:is(#shell, #pr-shell) .out { color: var(--fg); }
+:is(#shell, #pr-shell) .stderr, :is(#shell, #pr-shell) .err { color: var(--err); }
+:is(#shell, #pr-shell) .prompt { color: var(--prompt); }
+:is(#shell, #pr-shell) .command { color: var(--command); font-weight: 600; }
+:is(#shell, #pr-shell) .user-input { color: var(--input); font-weight: 600; }
+:is(#shell, #pr-shell) .repl-input { color: var(--repl-input); }
+:is(#shell, #pr-shell) .info { color: var(--info); font-style: italic; }
 #shell .tb-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 #shell .tb-link:hover { text-decoration-thickness: 2px; }
-#shell .hint {
+:is(#shell, #pr-shell) .hint {
   display: inline-block;
   margin: 4px 0 2px;
   padding: 3px 10px;
@@ -565,6 +567,33 @@ body.hand-up #toolbar button.hand .hand-icon { filter: none; opacity: 1; animati
 .st-class.searching { color: var(--muted); }
 .st-class.connected { color: var(--accent); }
 .st-class.note { color: var(--hint-fg); }
+.st-class.present { color: var(--run); }
+
+/* ------------------------------------------------------------------ παρουσίαση του καθηγητή (μαθητής) */
+#present-panel {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  box-shadow: 0 0 0 2px var(--run) inset;
+}
+#present-panel[hidden] { display: none; }
+#present-panel .present-head { background: var(--sel-row); }
+#present-panel .present-title { font-weight: 600; white-space: nowrap; }
+#present-panel #pr-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#present-panel .present-lock { font-weight: 600; color: var(--run); white-space: nowrap; }
+#present-panel .pr-zoom { display: flex; gap: 2px; }
+#present-panel .pr-zoom #pr-font-size { min-width: 34px; }
+#present-panel button.mini { white-space: nowrap; }
+#present-panel button.mini:disabled { opacity: 0.45; cursor: default; }
+#pr-editor { flex: 1 1 0; min-height: 80px; position: relative; overflow: hidden; }
+#pr-shell { flex: 0 0 30%; padding-bottom: 8px; cursor: default; border-top: 1px solid var(--border); }
+.monaco-editor .present-line { background: var(--sel-row); }
+.monaco-editor .present-caret { border-left: 2px solid var(--accent); margin-left: -1px; }
+.monaco-editor .present-sel { background: var(--present-sel); }
+/* μόνο ο κέρσορας του καθηγητή: όχι και ο (άχρηστος) κέρσορας του editor μόνο-για-ανάγνωση */
+#pr-editor .monaco-editor .cursors-layer { display: none; }
+/* «Όλοι εδώ»: η εκτέλεση του δικού μου κώδικα περιμένει το τέλος της παρουσίασης */
+body.present-locked #toolbar [data-cmd="run"], body.present-locked #toolbar [data-cmd="step"] { opacity: 0.45; }
 #dlg-classroom .cls-missing { display: none; white-space: pre-line; }
 #dlg-classroom.no-trust .cls-missing { display: block; }
 #dlg-classroom.no-trust .cls-ready { display: none; }

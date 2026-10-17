@@ -47,6 +47,7 @@
     cards: new Map(),      // id → { el, ... }
     selected: null,
     info: null,
+    present: { on: false, locked: false, copy: true },
 
     async init(monaco) {
       this.monaco = monaco;
@@ -77,6 +78,9 @@
       $('#t-font-up').addEventListener('click', () => this.setFont(this.fontSize + 1));
       $('#t-font-size').addEventListener('click', () => this.setFont(this.defaultFont));
       $('#t-wrap').addEventListener('click', () => this.setWrap(!this.wordWrap));
+      $('#t-present-btn').addEventListener('click', () => api.teacher.present({ on: !this.present.on }));
+      $('#t-present-lock').addEventListener('change', (e) => api.teacher.present({ locked: e.target.checked }));
+      $('#t-present-copy').addEventListener('change', (e) => api.teacher.present({ copy: e.target.checked }));
       this.showViewSettings();
       window.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && this.selected && !document.querySelector('dialog[open]')) this.select(null);
@@ -109,6 +113,15 @@
       $('#t-info-port').textContent = r.port;
       $('#t-info-fp').textContent = r.fingerprint;
       this.render();
+    },
+
+    /** Η παρουσίαση (ανοίγει/κλείνει εδώ ή από το μενού Τάξη του κύριου παραθύρου). */
+    showPresent(s) {
+      this.present = s;
+      $('#t-present').classList.toggle('on', s.on);
+      $('#t-present-btn').textContent = s.on ? '📺 Παρουσιάζεις · Τέλος' : '📺 Παρουσίαση';
+      $('#t-present-lock').checked = s.locked;
+      $('#t-present-copy').checked = s.copy;
     },
 
     showPin(pin) {
@@ -155,6 +168,9 @@
           break;
         case 'select':
           this.select(data);
+          break;
+        case 'present':
+          this.showPresent(data);
           break;
         case 'error':
           api.dialog.message({ type: 'warning', title: 'Τάξη', message: 'Πρόβλημα δικτύου', detail: String(data) });

@@ -26,6 +26,7 @@
       this.chars = 0;              // χαρακτήρες εξόδου στο Shell (για το MAX_CHARS)
       this.trimNote = null;        // «… η παλαιότερη έξοδος αφαιρέθηκε»
       this.refocus = false;        // το Shell είχε το focus πριν σταματήσει το πρόγραμμα
+      this.tap = null;             // tap(text, cls): ό,τι γράφεται στο Shell (null: καθάρισμα), για την παρουσίαση
 
       el.addEventListener('mouseup', () => {
         const sel = window.getSelection();
@@ -100,6 +101,7 @@
       this.atPrompt = false;
       this._trim();
       this._scroll();
+      if (this.tap) this.tap(text, cls);
     }
 
     _ensureNewline() {
@@ -302,6 +304,7 @@
           span.appendChild(ln);
           span.appendChild(document.createTextNode(m[5] + '\n'));
           this._append(span);
+          if (this.tap) this.tap(span.textContent, 'err');
         } else {
           this.write(line + '\n', 'err');
         }
@@ -314,6 +317,7 @@
         hint.title = 'Δες την εξήγηση στον Βοηθό';
         hint.addEventListener('click', () => this.h.onHelp());
         this._append(hint);
+        if (this.tap) this.tap(hint.textContent, 'hint');
         this.write('\n', 'out');
       }
       this.lastChar = '\n';
@@ -324,6 +328,7 @@
       const prompt = this.atPrompt || this.mode === 'repl';
       const mode = this.mode;
       const hadFocus = this.hasFocus();
+      if (this.tap) this.tap(null);
       this.el.textContent = '';
       this.edit = null;
       this.chars = 0;

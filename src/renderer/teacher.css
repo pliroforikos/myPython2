@@ -37,6 +37,10 @@ body.teacher input:focus { outline: 2px solid var(--accent); outline-offset: -1p
 .t-counts { display: flex; gap: 10px; font-weight: 600; }
 .t-counts .hands { color: var(--hint-fg); background: var(--hint-bg); border: 1px solid var(--hint-border); border-radius: 10px; padding: 0 8px; }
 #t-filter { width: 200px; }
+.t-present { display: flex; align-items: center; gap: 10px; }
+.t-present .t-check { display: none; align-items: center; gap: 4px; white-space: nowrap; cursor: pointer; }
+.t-present.on .t-check { display: flex; }
+body.teacher .t-present.on #t-present-btn { background: var(--run); border-color: var(--run); color: #fff; font-weight: 600; }
 .t-fp { word-break: break-all; user-select: all; }
 
 /* ------------------------------------------------------------------ κάρτες */

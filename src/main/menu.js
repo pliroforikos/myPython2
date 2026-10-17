@@ -8,7 +8,7 @@ const path = require('path');
  */
 const SPEEDS = [['step', 'Γραμμή γραμμή'], ['slow', 'Αργή'], ['medium', 'Μέτρια'], ['normal', 'Κανονική']];
 
-function buildMenu({ send, settings, examples, recent, openRecent, classroom = { state: 'off' }, teacherMode = true }) {
+function buildMenu({ send, settings, examples, recent, openRecent, classroom = { state: 'off' }, teacherMode = true, present = null, setPresent }) {
   const cmd = (id, label, accelerator, extra = {}) => ({
     label, ...(accelerator ? { accelerator } : {}), click: () => send(id), ...extra,
   });
@@ -118,6 +118,13 @@ function buildMenu({ send, settings, examples, recent, openRecent, classroom = {
           { type: 'checkbox', checked: !!classroom.hand, enabled: classroom.state === 'connected' }),
         // όχι σε υπολογιστή μαθητή (με classroom.json)
         ...(teacherMode ? [{ type: 'separator' }, cmd('teacherMode', 'Λειτουργία καθηγητή…', '')] : []),
+        // μόνο όταν η τάξη του καθηγητή είναι ανοιχτή: οι μαθητές βλέπουν την ενεργή καρτέλα αυτού του παραθύρου
+        ...(present ? [
+          { type: 'separator' },
+          { label: '📺 Παρουσίαση στην τάξη', type: 'checkbox', checked: present.on, click: (item) => setPresent({ on: item.checked }) },
+          { label: '🔒 Όλοι εδώ (κλειδώνει τους μαθητές)', type: 'checkbox', checked: present.locked, enabled: present.on, click: (item) => setPresent({ locked: item.checked }) },
+          { label: 'Επιτρέπεται η αντιγραφή του κώδικα', type: 'checkbox', checked: present.copy, enabled: present.on, click: (item) => setPresent({ copy: item.checked }) },
+        ] : []),
       ],
     },
     {

@@ -50,6 +50,25 @@
         </div>
         <div id="shell" class="mono" tabindex="-1"></div>
       </section>
+      <!-- Ο καθηγητής παρουσιάζει: ο κώδικάς του και η έξοδός του, πάνω από τον editor του μαθητή -->
+      <section id="present-panel" hidden>
+        <div class="panel-head present-head">
+          <span class="present-title">📺 Ο καθηγητής παρουσιάζει</span>
+          <span class="panel-sub" id="pr-file"></span>
+          <span class="present-lock" id="pr-lock" hidden title="Ο καθηγητής ζήτησε να κοιτάτε όλοι τον κώδικά του. Ο δικός σου κώδικας ξεκλειδώνει μόλις τελειώσει.">🔒 Όλοι εδώ</span>
+          <span class="spacer"></span>
+          <div class="pr-zoom" title="Μέγεθος γραμμάτων (ή Ctrl + ροδάκι)">
+            <button id="pr-font-down" class="mini" title="Μικρότερα γράμματα">A−</button>
+            <button id="pr-font-size" class="mini" title="Αρχικό μέγεθος"></button>
+            <button id="pr-font-up" class="mini" title="Μεγαλύτερα γράμματα">A+</button>
+          </div>
+          <button id="pr-copy" class="mini" title="Ο κώδικας του καθηγητή σε νέα καρτέλα, για να τον τρέξεις ή να τον αλλάξεις">Αντιγραφή σε νέα καρτέλα</button>
+          <button id="pr-hide" class="mini" title="Πίσω στον κώδικά μου (η παρουσίαση ξανανοίγει από τη γραμμή κατάστασης)">Απόκρυψη</button>
+        </div>
+        <div id="pr-editor"></div>
+        <div class="panel-head"><span class="panel-title">Shell του καθηγητή</span></div>
+        <div id="pr-shell" class="mono"></div>
+      </section>
     </div>
     <div class="splitter v" id="split-side"></div>
     <aside id="side">
@@ -74,6 +93,8 @@
     <span id="st-state" class="st-state idle">● Έτοιμο</span>
     <span id="st-file" class="st-file"></span>
     <span class="spacer"></span>
+    <span id="st-present" class="st-class present" hidden></span>
+    <span id="st-watch" class="st-class present" hidden></span>
     <span id="st-class" class="st-class" hidden></span>
     <span id="st-pos"></span>
     <span id="st-enc" title="Κωδικοποίηση ελληνικών κατά την εκτέλεση"></span>
@@ -228,6 +249,7 @@
   <script src="shell.js"></script>
   <script src="panels.js"></script>
   <script src="recall.js"></script>
+  <script src="present.js"></script>
   <script src="app.js"></script>
   <script>
     require.config({ paths: { vs: '../../node_modules/monaco-editor/min/vs' } });

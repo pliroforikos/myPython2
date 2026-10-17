@@ -3,6 +3,7 @@
 /*
  * Προσομοίωση τάξης για δοκιμές της λειτουργίας «Τάξη»: εικονικοί μαθητές συνδέονται στον καθηγητή,
  * γράφουν σιγά-σιγά προγράμματα, κάνουν λάθη σύνταξης που διορθώνουν και σηκώνουν χέρι.
+ * Όταν ο καθηγητής παρουσιάζει, ο πρώτος μαθητής τυπώνει τι βλέπει (αρχείο, γραμμές, έξοδο).
  *
  *   node scripts/classroom-emulator.js <PIN> [πλήθος μαθητών]
  *
@@ -112,6 +113,29 @@ function tick(st) {
   st.timer = setTimeout(() => tick(st), rnd(500, 1800));
 }
 
+/** Ο πρώτος εικονικός μαθητής δείχνει στην κονσόλα ό,τι παρουσιάζει ο καθηγητής (κώδικας και έξοδος). */
+function watchPresentation(client) {
+  const st = { on: false, file: '', lines: 0, locked: false, copy: true, last: '' };
+  client.on('present', (p) => {
+    if (!p.on) {
+      if (st.on) console.log('📺 τέλος παρουσίασης');
+      Object.assign(st, { on: false, last: '' });
+      return;
+    }
+    if (!st.on) Object.assign(st, { on: true, file: '', lines: 0, locked: false, copy: true });
+    if ('file' in p) st.file = p.file;
+    if ('locked' in p) st.locked = p.locked;
+    if ('copy' in p) st.copy = p.copy;
+    if (typeof p.text === 'string') st.lines = p.text.split('\n').length;
+    const line = `📺 παρουσίαση: ${st.file || '—'}, ${st.lines} γραμμές${st.locked ? ' · 🔒 Όλοι εδώ' : ''}${st.copy ? '' : ' · χωρίς αντιγραφή'}`;
+    if (line !== st.last) console.log(line);
+    st.last = line;
+  });
+  client.on('present-out', (o) => {
+    for (const [, text] of o.chunks || []) process.stdout.write(text);
+  });
+}
+
 const students = [];
 for (let i = 0; i < count; i++) {
   const n = String(i + 1).padStart(2, '0');
@@ -130,6 +154,7 @@ for (let i = 0; i < count; i++) {
     if (s.state === 'kicked') console.log(`– ${name}: αφαιρέθηκε από τον καθηγητή`);
     if (s.lowered) console.log(`👇 ${name}: ο καθηγητής κατέβασε το χέρι`);
   });
+  if (i === 0) watchPresentation(client);
   students.push(st);
   // οι μαθητές μπαίνουν σιγά-σιγά, όπως στο εργαστήριο
   setTimeout(() => { client.start(); tick(st); }, i * rnd(300, 900));

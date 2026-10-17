@@ -7,6 +7,7 @@
 //    του classroom.json, που έβαλε ο διαχειριστής στον υπολογιστή (ο μαθητής δεν μπορεί να το αλλάξει).
 //    Έτσι κανείς άλλος (ούτε μαθητής με την εφαρμογή σε «λειτουργία καθηγητή») δεν βλέπει τον κώδικα.
 //  - Ο καθηγητής δέχεται μαθητή μόνο με το PIN που δείχνει η οθόνη του.
+//  - Παρουσίαση: ο καθηγητής στέλνει στους μαθητές τον δικό του κώδικα και την έξοδό του (present, present-out).
 //  - Μηνύματα JSON, ένα ανά γραμμή.
 
 const crypto = require('crypto');
@@ -29,6 +30,11 @@ const HELLO_TIMEOUT = 10000;
 const PIN_TRIES = 5;
 const PIN_BLOCK = 60000;
 const IMPOSTOR_BLOCK = 30000;
+const OUT_KEEP = 30 * 1024;    // η έξοδος της παρουσίασης που κρατά ο καθηγητής για όσους μπαίνουν αργότερα
+const OUT_CHUNK = 64 * 1024;   // όριο εξόδου ανά μήνυμα
+const MAX_SEL = 20;
+const STALE_BUFFER = 1024 * 1024;   // δεδομένα που δεν έχουν φύγει ακόμα προς έναν μαθητή
+const OUT_CLASSES = new Set(['out', 'stderr', 'err', 'prompt', 'command', 'user-input', 'repl-input', 'info', 'hint']);
 
 /** Χωρίζει τη ροή σε γραμμές JSON. Γραμμή-τέρας (πάνω από MAX_LINE) → onOverflow. */
 function frameReader(onMessage, onOverflow) {
@@ -53,6 +59,45 @@ function sendLine(sock, obj) {
 }
 
 const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
+const num = (x) => (Number.isFinite(x) ? Math.max(0, Math.floor(x)) : 0);
+
+/** Η θέση του καθηγητή στον κώδικα της παρουσίασης: κέρσορας, επιλογές, πρώτη ορατή γραμμή, γραμμή εκτέλεσης. */
+function cleanView(v) {
+  if (!v || typeof v !== 'object') return { cursor: null, sel: [], top: 1, exec: 0 };
+  return {
+    cursor: v.cursor && Number.isFinite(v.cursor.line) ? { line: num(v.cursor.line), column: num(v.cursor.column) || 1 } : null,
+    sel: (Array.isArray(v.sel) ? v.sel : []).slice(0, MAX_SEL)
+      .filter((r) => Array.isArray(r) && r.length === 4).map((r) => r.map(num)),
+    top: num(v.top) || 1,
+    exec: num(v.exec),
+  };
+}
+
+/** Κομμάτια εξόδου [[κλάση, κείμενο], …]: μόνο γνωστές κλάσεις, συνολικά έως `limit` χαρακτήρες (κρατά τα τελευταία). */
+function cleanChunks(chunks, limit = OUT_CHUNK) {
+  const out = [];
+  let size = 0;
+  for (const c of (Array.isArray(chunks) ? chunks : []).slice().reverse()) {
+    if (!Array.isArray(c) || !OUT_CLASSES.has(c[0]) || typeof c[1] !== 'string' || !c[1]) continue;
+    const text = c[1].length > limit - size ? c[1].slice(-(limit - size)) : c[1];
+    out.unshift([c[0], text]);
+    size += text.length;
+    if (size >= limit) break;
+  }
+  return out;
+}
+
+/** Μήνυμα παρουσίασης όπως το δέχεται ο μαθητής (μερική ενημέρωση: ό,τι λείπει δεν άλλαξε). */
+function cleanPresent(msg) {
+  if (!msg.on) return { on: false };
+  const p = { on: true };
+  if ('file' in msg) p.file = clip(msg.file, 200);
+  if (typeof msg.text === 'string') p.text = clip(msg.text, MAX_TEXT);
+  if ('view' in msg) p.view = cleanView(msg.view);
+  if ('locked' in msg) p.locked = !!msg.locked;
+  if ('copy' in msg) p.copy = !!msg.copy;
+  return p;
+}
 
 /** Οι διευθύνσεις IPv4 του υπολογιστή (για να τις δει ο καθηγητής) και οι αντίστοιχες broadcast. */
 function lanAddresses() {
@@ -145,6 +190,8 @@ class TeacherServer extends EventEmitter {
     this.students = new Map();   // κλειδί «υπολογιστής|χρήστης» → μαθητής
     this.failures = new Map();   // IP → { count, until }
     this.nextId = 1;
+    this.presentation = null;   // ό,τι παρουσιάζει ο καθηγητής (null: καμία παρουσίαση)
+    this.presentOut = [];       // η πρόσφατη έξοδος της παρουσίασης
     this.server = null;
     this.udp = null;
   }
@@ -249,6 +296,7 @@ class TeacherServer extends EventEmitter {
     }
     Object.assign(s, { name: clip(hello.name, 80) || user || host, user, host, ip, socket: sock, online: true, seenAt: Date.now() });
     sendLine(sock, { type: 'welcome', id: s.id });
+    this._sendPresentation(s);
     this._changed(s);
     return s;
   }
@@ -302,7 +350,66 @@ class TeacherServer extends EventEmitter {
     this.emit('remove', { id });
   }
 
+  // ------------------------------------------------------------ παρουσίαση του καθηγητή
+
+  /**
+   * Μερική ενημέρωση της παρουσίασης (on, file, text, view, locked, copy) προς όλους τους μαθητές.
+   * Ξεκινά με on: true και τελειώνει με on: false· ενδιάμεσα στέλνεται μόνο ό,τι άλλαξε.
+   */
+  present(patch) {
+    if (patch.on === false) {
+      if (!this.presentation) return;
+      this.presentation = null;
+      this.presentOut = [];
+      this._broadcast({ type: 'present', on: false });
+      return;
+    }
+    if (!this.presentation && !patch.on) return;
+    const p = cleanPresent({ ...patch, on: true });
+    this.presentation = { file: '', text: '', view: cleanView(null), locked: false, copy: true, ...this.presentation, ...p };
+    this._broadcast({ type: 'present', ...p });
+  }
+
+  /** Έξοδος του Shell του καθηγητή: [[κλάση, κείμενο], …] ή { clear: true }. */
+  presentOutput(out) {
+    if (!this.presentation) return;
+    if (out && out.clear) {
+      this.presentOut = [];
+      this._broadcast({ type: 'present-out', clear: true });
+      return;
+    }
+    const chunks = cleanChunks(out);
+    if (!chunks.length) return;
+    this.presentOut = cleanChunks([...this.presentOut, ...chunks], OUT_KEEP);
+    this._broadcast({ type: 'present-out', chunks });
+  }
+
+  /** Όλη η παρουσίαση σε έναν μαθητή: όταν μπαίνει ή όταν ξαναπρολαβαίνει μετά από αργό δίκτυο. */
+  _sendPresentation(s) {
+    s.presentStale = false;
+    if (!this.presentation) return;
+    sendLine(s.socket, { type: 'present', ...this.presentation });
+    sendLine(s.socket, { type: 'present-out', clear: true });
+    if (this.presentOut.length) sendLine(s.socket, { type: 'present-out', chunks: this.presentOut });
+  }
+
+  _broadcast(obj) {
+    const line = JSON.stringify(obj) + '\n';
+    for (const s of this.students.values()) {
+      const sock = s.socket;
+      if (!sock || sock.destroyed || !sock.writable) continue;
+      if (obj.type === 'present' && obj.on === false) { s.presentStale = false; sock.write(line); continue; }
+      // Μαθητής που δεν προλαβαίνει (π.χ. αργό Wi-Fi): δεν μαζεύονται ενημερώσεις στη μνήμη·
+      // μόλις αδειάσει η ουρά του παίρνει όλη την παρουσίαση από την αρχή.
+      if (sock.writableLength > STALE_BUFFER) { s.presentStale = true; continue; }
+      if (s.presentStale) { this._sendPresentation(s); continue; }
+      sock.write(line);
+    }
+  }
+
   stop() {
+    this.presentation = null;
+    this.presentOut = [];
     for (const s of this.students.values()) if (s.socket) s.socket.destroy();
     this.students.clear();
     if (this.server) { this.server.close(); this.server = null; }
@@ -328,6 +435,7 @@ class StudentClient extends EventEmitter {
     this.teacher = null;
     this.hand = false;
     this.lastCode = null;
+    this.presenting = false;   // ο καθηγητής παρουσιάζει (μήνυμα present)
     this.bad = new Map();   // IP που δεν απέδειξε ότι είναι ο καθηγητής → μέχρι πότε αγνοείται
     this.sock = null;
     this.udp = null;
@@ -415,6 +523,13 @@ class StudentClient extends EventEmitter {
       } else if (msg.type === 'hand' && msg.up === false && this.hand) {
         this.hand = false;
         this.emit('status', this.status({ lowered: true }));
+      } else if (msg.type === 'present' && this.teacher) {
+        const p = cleanPresent(msg);
+        this.presenting = p.on;
+        this.emit('present', p);
+      } else if (msg.type === 'present-out' && this.presenting) {
+        if (msg.clear) this.emit('present-out', { clear: true });
+        else this.emit('present-out', { chunks: cleanChunks(msg.chunks) });
       }
     }, () => sock.destroy()));
 
@@ -423,6 +538,7 @@ class StudentClient extends EventEmitter {
       if (this.sock !== sock) return;
       this.sock = null;
       this.teacher = null;
+      this._endPresent();
       if (!this.stopped) this._set('searching');
     });
   }
@@ -438,12 +554,20 @@ class StudentClient extends EventEmitter {
     this.emit('status', this.status());
   }
 
+  /** Χωρίς σύνδεση δεν υπάρχει παρουσίαση: ο μαθητής δεν μένει ποτέ «κλειδωμένος» από το «Όλοι εδώ». */
+  _endPresent() {
+    if (!this.presenting) return;
+    this.presenting = false;
+    this.emit('present', { on: false });
+  }
+
   stop() {
     this.stopped = true;
     clearInterval(this.timer);
     this.timer = null;
     if (this.udp) { try { this.udp.close(); } catch (_) { /* ήδη κλειστό */ } this.udp = null; }
     if (this.sock) { const s = this.sock; this.sock = null; s.destroy(); }
+    this._endPresent();
     this.teacher = null;
     this.hand = false;
     this.state = 'off';
@@ -458,5 +582,5 @@ class StudentClient extends EventEmitter {
 
 module.exports = {
   TeacherServer, StudentClient, loadTrust, buildTrustFile, trustFilePath, lanAddresses, frameReader, newPin, teacherModeAllowed,
-  DEFAULT_PORT, DISCOVERY_PORT,
+  cleanChunks, DEFAULT_PORT, DISCOVERY_PORT,
 };

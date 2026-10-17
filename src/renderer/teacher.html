@@ -13,7 +13,8 @@
   <section id="t-start">
     <form id="t-start-form">
       <h1>Λειτουργία καθηγητή</h1>
-      <p>Βλέπεις ζωντανά τον κώδικα των μαθητών που συνδέονται στην τάξη σου και τα <b>✋ σηκωμένα χέρια</b>.</p>
+      <p>Βλέπεις ζωντανά τον κώδικα των μαθητών που συνδέονται στην τάξη σου και τα <b>✋ σηκωμένα χέρια</b>.
+        Με την <b>📺 Παρουσίαση</b> οι μαθητές βλέπουν στη δική τους οθόνη τον κώδικα που γράφεις και τρέχεις.</p>
       <label class="field">Όνομα καθηγητή
         <input type="text" id="t-name" maxlength="80" spellcheck="false" required>
       </label>
@@ -49,6 +50,13 @@
         <button id="t-newpin" class="mini" title="Νέο PIN (όσοι είναι ήδη συνδεδεμένοι μένουν)">↻</button>
       </div>
       <div id="t-counts" class="t-counts"></div>
+      <div class="t-present" id="t-present">
+        <button id="t-present-btn" title="Οι μαθητές βλέπουν στην οθόνη τους την ενεργή καρτέλα του κύριου παραθύρου σου και το Shell, ζωντανά">📺 Παρουσίαση</button>
+        <label class="t-check" title="Το πάνελ της παρουσίασης δεν κρύβεται και ο editor των μαθητών κλειδώνει μέχρι να το βγάλεις">
+          <input type="checkbox" id="t-present-lock"> 🔒 Όλοι εδώ</label>
+        <label class="t-check" title="Οι μαθητές μπορούν να αντιγράψουν τον κώδικα (Ctrl+C ή «Αντιγραφή σε νέα καρτέλα»)">
+          <input type="checkbox" id="t-present-copy" checked> 📋 Αντιγραφή</label>
+      </div>
       <span class="spacer"></span>
       <input type="search" id="t-filter" placeholder="Αναζήτηση μαθητή…" spellcheck="false">
       <button id="t-export" title="Το αρχείο που χρειάζονται οι υπολογιστές των μαθητών για να εμπιστεύονται αυτόν τον υπολογιστή">Εξαγωγή classroom.json…</button>

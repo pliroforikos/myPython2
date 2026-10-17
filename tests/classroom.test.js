@@ -145,6 +145,68 @@ test('ο καθηγητής αφαιρεί μαθητή', async (t) => {
   assert.strictEqual(server.list().length, 0);
 });
 
+test('παρουσίαση: κώδικας, μερικές ενημερώσεις, έξοδος, τέλος', async (t) => {
+  const { server, student } = await classroom(t);
+  student.start();
+  await waitFor(student, 'status', (s) => s.state === 'connected');
+
+  const first = waitFor(student, 'present');
+  server.present({ on: true, file: 'demo.py', text: 'print 1\n', view: { cursor: { line: 1, column: 3 }, sel: [[1, 1, 1, 6]], top: 1, exec: 0 }, locked: true, copy: false });
+  const p = await first;
+  assert.deepStrictEqual(p, {
+    on: true, file: 'demo.py', text: 'print 1\n', locked: true, copy: false,
+    view: { cursor: { line: 1, column: 3 }, sel: [[1, 1, 1, 6]], top: 1, exec: 0 },
+  });
+
+  // μόνο ο κέρσορας άλλαξε: χωρίς κείμενο
+  const moved = waitFor(student, 'present');
+  server.present({ view: { cursor: { line: 1, column: 8 }, top: 1 } });
+  const m = await moved;
+  assert.strictEqual(m.text, undefined);
+  assert.strictEqual(m.view.cursor.column, 8);
+  assert.strictEqual(server.presentation.text, 'print 1\n');
+
+  // έξοδος: άγνωστες κλάσεις και άκυρα κομμάτια πετιούνται
+  const out = waitFor(student, 'present-out');
+  server.presentOutput([['out', '1\n'], ['<script>', 'x'], ['err', 42], ['stderr', 'λάθος\n']]);
+  assert.deepStrictEqual((await out).chunks, [['out', '1\n'], ['stderr', 'λάθος\n']]);
+
+  const end = waitFor(student, 'present', (x) => !x.on);
+  server.present({ on: false });
+  await end;
+  assert.strictEqual(server.presentation, null);
+  // μετά το τέλος δεν φεύγει τίποτα
+  server.present({ text: 'μυστικό' });
+  assert.strictEqual(server.presentation, null);
+});
+
+test('παρουσίαση: όποιος μπαίνει αργότερα βλέπει κώδικα και έξοδο· χωρίς σύνδεση τελειώνει', async (t) => {
+  const { server, student } = await classroom(t);
+  server.present({ on: true, file: 'a.py', text: 'x = 1\n', locked: true });
+  server.presentOutput([['command', '%Run a.py\n'], ['out', 'x'.repeat(40 * 1024)]]);
+  assert.ok(server.presentOut.reduce((n, c) => n + c[1].length, 0) <= 30 * 1024);
+
+  const got = waitFor(student, 'present', (x) => x.on);
+  const out = waitFor(student, 'present-out', (x) => x.chunks);
+  student.start();
+  const p = await got;
+  assert.strictEqual(p.text, 'x = 1\n');
+  assert.strictEqual(p.locked, true);
+  assert.strictEqual(p.copy, true);
+  assert.ok((await out).chunks.length > 0);
+
+  // ο καθηγητής κλείνει την τάξη: ο μαθητής ξεκλειδώνει
+  const end = waitFor(student, 'present', (x) => !x.on);
+  server.stop();
+  await end;
+});
+
+test('έξοδος παρουσίασης: όριο μεγέθους, κρατά τα τελευταία', () => {
+  const chunks = C.cleanChunks([['out', 'a'.repeat(10)], ['out', 'b'.repeat(10)]], 15);
+  assert.deepStrictEqual(chunks, [['out', 'aaaaa'], ['out', 'b'.repeat(10)]]);
+  assert.deepStrictEqual(C.cleanChunks('όχι πίνακας'), []);
+});
+
 test('PIN: πάντα 4 ψηφία', () => {
   for (let i = 0; i < 200; i++) assert.match(C.newPin(), /^\d{4}$/);
 });

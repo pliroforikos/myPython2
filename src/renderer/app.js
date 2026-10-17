@@ -39,6 +39,7 @@
   };
   const SPEED_NAMES = { step: 'Γραμμή γραμμή', slow: 'Αργή', medium: 'Μέτρια', normal: 'Κανονική' };
   const SPEED_ORDER = ['step', 'slow', 'medium', 'normal'];   // θέσεις του slider, από αριστερά
+  const PRESENT_OUT_MAX = 8 * 1024;   // έξοδος της παρουσίασης ανά 100 ms (ατέρμονο print με 30 μαθητές)
 
   const samePath =(a, b) => !!a && !!b && a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase();
   const baseName = (p) => p.split(/[\\/]/).pop();
@@ -58,6 +59,8 @@
     execIds: [],         // φωτισμός της γραμμής που εκτελείται
     pythonVersion: null,
     classroom: { state: 'off', hand: false },   // σύνδεση με τον καθηγητή (μενού Τάξη)
+    presenting: false,   // καθηγητής: οι μαθητές βλέπουν την ενεργή καρτέλα και το Shell
+    watching: { on: false, visible: false, locked: false },   // μαθητής: ο καθηγητής παρουσιάζει
 
     // ================================================================ εκκίνηση
     async init(monaco) {
@@ -72,6 +75,8 @@
         $('#st-pos').textContent = `Γρ ${e.position.lineNumber}, Στ ${e.position.column}`;
         this.scheduleShare();
       });
+      this.editor.onDidChangeCursorSelection(() => this.schedulePresent());
+      this.editor.onDidScrollChange((e) => { if (e.scrollTopChanged) this.schedulePresent(); });
       // Μέσα στον editor ο Monaco «πιάνει» κάποια πλήκτρα πριν από το μενού: F1 (παλέτα εντολών), F7/F8
       // (μετάβαση σε επισήμανση/λάθος), Ctrl+F2 (αλλαγή όλων των εμφανίσεων). Εδώ πηγαίνουν στις δικές μας εντολές.
       const K = monaco.KeyCode;
@@ -87,6 +92,14 @@
         onLink: (file, line) => this.gotoFileLine(file, line),
         onInterrupt: () => this.stop(),
         onHelp: () => this.showAssistant(),
+      });
+      this.shell.tap = (text, cls) => this.presentOutput(text, cls);
+      this.presentView = new root.Present.PresentView($('#present-panel'), {
+        monaco,
+        editorOptions: () => ES().editorOptions(this.settings),
+        baseFont: () => this.settings.fontSize,
+        onCopy: (text, file) => this.copyPresented(text, file),
+        onChange: (s) => this.onWatching(s),
       });
       this.vars = new root.Panels.VariablesView($('#vars'), {
         onGoto: (line) => {
@@ -126,6 +139,9 @@
       api.onMenu((id, arg) => this.onMenu(id, arg));
       api.backend.onMessage((msg) => this.onBackend(msg));
       api.classroom.onStatus((s) => this.onClassroom(s));
+      api.classroom.onPresent((p) => this.presentView.update(p));
+      api.classroom.onPresentOut((o) => this.presentView.output(o));
+      api.present.onState((s) => this.onPresentState(s));
       this.bindClassroom();
 
       await this.restoreSession();
@@ -140,6 +156,7 @@
      */
     redirectTyping(e) {
       if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing || document.querySelector('dialog[open]')) return;
+      if (this.watching.locked) return;   // «Όλοι εδώ»: ο καθηγητής παρουσιάζει
       const a = document.activeElement;
       const onBody = !a || a === document.body || a === document.documentElement;
       if (!onBody) {
@@ -458,7 +475,7 @@
 
     async run() {
       const tab = this.active;
-      if (!tab) return;
+      if (!tab || this.lockedByTeacher()) return;
       if (!tab.path || (this.settings.saveBeforeRun && this.isDirty(tab))) {
         if (!tab.path) {
           await api.dialog.message({
@@ -529,6 +546,7 @@
     },
 
     step() {
+      if (this.lockedByTeacher()) return;
       if (this.running && this.traced && this.settings.runSpeed === 'step') api.backend.step();
     },
 
@@ -553,13 +571,17 @@
         },
       }]);
       this.execModel = model;
+      this.execLine = line;
       if (this.editor.getModel() === model) this.editor.revealLineInCenterIfOutsideViewport(line);
+      this.schedulePresent();
     },
 
     clearExecLine() {
       if (this.execModel && !this.execModel.isDisposed()) this.execModel.deltaDecorations(this.execIds, []);
       this.execIds = [];
+      if (this.execModel) this.schedulePresent();
       this.execModel = null;
+      this.execLine = 0;
     },
 
     stop() {
@@ -902,6 +924,7 @@
     },
 
     scheduleShare() {
+      this.schedulePresent();   // ό,τι αλλάζει στον editor αλλάζει και στην παρουσίαση
       if (!this.classroomActive()) return;
       clearTimeout(this.shareTimer);
       this.shareTimer = setTimeout(() => this.shareCode(), 500);
@@ -912,17 +935,130 @@
       const tab = this.active;
       if (!this.classroomActive() || !tab || tab.model.isDisposed()) return;
       const m = this.monaco;
-      const pos = this.editor.getModel() === tab.model ? this.editor.getPosition() : null;
       const errors = m.editor.getModelMarkers({ resource: tab.model.uri })
         .filter((x) => x.severity === m.MarkerSeverity.Error)
         .slice(0, 10)
         .map((x) => ({ line: x.startLineNumber, message: x.message }));
-      api.classroom.code({
-        file: tab.title,
-        text: tab.model.getValue(),
-        cursor: pos ? { line: pos.lineNumber, column: pos.column } : null,
-        errors,
-      });
+      api.classroom.code({ file: tab.title, text: tab.model.getValue(), cursor: this.cursorOf(tab), errors });
+    },
+
+    cursorOf(tab) {
+      const pos = this.editor.getModel() === tab.model ? this.editor.getPosition() : null;
+      return pos ? { line: pos.lineNumber, column: pos.column } : null;
+    },
+
+    // ================================================================ παρουσίαση (καθηγητής)
+    /** Η παρουσίαση άνοιξε ή έκλεισε (από το παράθυρο Τάξης ή το μενού Τάξη). */
+    onPresentState(s) {
+      this.presenting = s.on;
+      const st = $('#st-present');
+      st.hidden = !s.on;
+      st.textContent = `📺 Παρουσιάζεις στην τάξη${s.locked ? ' · 🔒 Όλοι εδώ' : ''}${s.copy ? '' : ' · χωρίς αντιγραφή'}`;
+      st.title = 'Οι μαθητές βλέπουν την ενεργή καρτέλα και το Shell. Κλικ για τέλος της παρουσίασης.';
+      st.onclick = () => api.present.set({ on: false });
+      clearTimeout(this.presentTimer);
+      this.presentTimer = null;
+      this.presentOutBuf = [];
+      if (s.started) {
+        this.presented = null;
+        this.presentedFile = null;
+        this.presentCode();
+      }
+    },
+
+    schedulePresent() {
+      if (!this.presenting || this.presentTimer) return;
+      // το πολύ μία ενημέρωση ανά 120 ms, όσο γρήγορα κι αν γράφει ο καθηγητής
+      this.presentTimer = setTimeout(() => { this.presentTimer = null; this.presentCode(); }, 120);
+    },
+
+    /** Η ενεργή καρτέλα προς τους μαθητές: το κείμενο μόνο όταν άλλαξε, πάντα η θέση του καθηγητή. */
+    presentCode() {
+      const tab = this.active;
+      if (!this.presenting || !tab || tab.model.isDisposed()) return;
+      const ed = this.editor;
+      const own = ed.getModel() === tab.model;
+      const visible = own ? ed.getVisibleRanges() : [];
+      const payload = {
+        view: {
+          cursor: this.cursorOf(tab),
+          sel: own ? ed.getSelections().filter((r) => !r.isEmpty())
+            .map((r) => [r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn]) : [],
+          top: visible.length ? visible[0].startLineNumber : 1,
+          exec: this.execModel === tab.model ? this.execLine || 0 : 0,
+        },
+      };
+      const version = `${tab.id}:${tab.model.getVersionId()}`;
+      if (this.presented !== version) { payload.text = tab.model.getValue(); this.presented = version; }
+      if (this.presentedFile !== tab.title) { payload.file = tab.title; this.presentedFile = tab.title; }
+      api.present.code(payload);
+    },
+
+    /** Ό,τι γράφεται στο Shell (null: καθάρισμα), μαζεμένο ανά 100 ms. */
+    presentOutput(text, cls) {
+      if (!this.presenting) return;
+      if (text === null) {
+        this.presentOutBuf = [];
+        api.present.out({ clear: true });
+        return;
+      }
+      const buf = this.presentOutBuf || (this.presentOutBuf = []);
+      const last = buf[buf.length - 1];
+      if (last && last[0] === cls) last[1] += text;
+      else buf.push([cls, text]);
+      if (this.presentOutTimer) return;
+      this.presentOutTimer = setTimeout(() => {
+        this.presentOutTimer = null;
+        let chunks = this.presentOutBuf || [];
+        this.presentOutBuf = [];
+        // ατέρμονο print: οι μαθητές παίρνουν μόνο το τέλος κάθε δέσμης (ως 8 KB ανά 100 ms)
+        let size = chunks.reduce((n, c) => n + c[1].length, 0);
+        while (size > PRESENT_OUT_MAX && chunks.length) {
+          const extra = size - PRESENT_OUT_MAX;
+          if (chunks[0][1].length > extra) { chunks[0][1] = chunks[0][1].slice(extra); size -= extra; }
+          else { size -= chunks[0][1].length; chunks = chunks.slice(1); }
+        }
+        if (chunks.length && this.presenting) api.present.out(chunks);
+      }, 100);
+    },
+
+    // ================================================================ παρουσίαση (μαθητής)
+    /** Το πάνελ της παρουσίασης άλλαξε: ένδειξη στη γραμμή κατάστασης και κλείδωμα του editor («Όλοι εδώ»). */
+    onWatching(s) {
+      const wasLocked = this.watching.locked;
+      this.watching = s;
+      const teacher = this.classroom.teacher ? this.classroom.teacher.name : 'Ο καθηγητής';
+      $('#present-panel .present-title').textContent = `📺 ${teacher} παρουσιάζει`;
+      const st = $('#st-watch');
+      st.hidden = !s.on || s.visible;
+      st.textContent = `📺 ${teacher} παρουσιάζει: κλικ για προβολή`;
+      st.onclick = () => this.presentView.show(true);
+      const locked = s.on && s.locked;
+      document.body.classList.toggle('present-locked', locked);
+      this.editor.updateOptions({ readOnly: locked });
+      if (locked && !wasLocked) {
+        // και το Shell: η πληκτρολόγηση δεν πηγαίνει στο πρόγραμμα του μαθητή όσο κοιτάμε όλοι τον καθηγητή
+        if (document.activeElement && document.activeElement.closest('#shell')) document.activeElement.blur();
+      } else if (!locked && wasLocked) {
+        if (!this.running && $('#st-state').textContent.includes('🔒')) this.setState('idle');
+        this.editor.focus();
+      }
+    },
+
+    lockedByTeacher() {
+      if (!this.watching.locked) return false;
+      this.presentView.show(true);
+      this.setState('idle', '🔒 Ο καθηγητής παρουσιάζει: «Όλοι εδώ»');
+      return true;
+    },
+
+    /** «Αντιγραφή σε νέα καρτέλα»: ο κώδικας του καθηγητή ως νέο, μη αποθηκευμένο πρόγραμμα του μαθητή. */
+    copyPresented(text, file) {
+      const tab = this.addTab({ content: text }, false);
+      tab.title = `${(file || 'κώδικας').replace(/\.py$/i, '')} (καθηγητής)`;
+      tab.savedVersion = -1;   // ζητά αποθήκευση στο κλείσιμο
+      this.presentView.show(false);
+      this.activate(tab);
     },
 
     // ================================================================ ρυθμίσεις
@@ -948,6 +1084,7 @@
 
     applyFont() {
       $('#shell').style.fontSize = `${Math.max(10, this.settings.fontSize - 1)}px`;
+      if (this.presentView) this.presentView.showFont();
     },
 
     async setEncoding(enc) {

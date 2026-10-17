@@ -44,6 +44,15 @@ contextBridge.exposeInMainWorld('api', {
     hand: (up) => ipcRenderer.send('classroom:hand', up),
     openTeacher: () => ipcRenderer.send('classroom:teacher'),
     onStatus: (cb) => ipcRenderer.on('classroom', (_e, status) => cb(status)),
+    onPresent: (cb) => ipcRenderer.on('present', (_e, p) => cb(p)),
+    onPresentOut: (cb) => ipcRenderer.on('present-out', (_e, o) => cb(o)),
+  },
+  // παρουσίαση του καθηγητή (κύριο παράθυρο του υπολογιστή του καθηγητή)
+  present: {
+    code: (payload) => ipcRenderer.send('present:code', payload),
+    out: (out) => ipcRenderer.send('present:out', out),
+    set: (patch) => ipcRenderer.send('present:set', patch),
+    onState: (cb) => ipcRenderer.on('present-state', (_e, s) => cb(s)),
   },
   teacher: {
     defaults: () => ipcRenderer.invoke('teacher:defaults'),
@@ -53,6 +62,7 @@ contextBridge.exposeInMainWorld('api', {
     lowerHand: (id) => ipcRenderer.send('teacher:lower', id),
     remove: (id) => ipcRenderer.send('teacher:remove', id),
     exportTrust: () => ipcRenderer.invoke('teacher:export'),
+    present: (patch) => ipcRenderer.send('present:set', patch),
     onEvent: (cb) => ipcRenderer.on('teacher', (_e, type, data) => cb(type, data)),
   },
   onMenu: (cb) => ipcRenderer.on('menu', (_e, id, arg) => cb(id, arg)),
