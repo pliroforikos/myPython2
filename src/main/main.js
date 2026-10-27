@@ -571,7 +571,8 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
-    if (process.platform === 'win32') app.setAppUserModelId('gr.epal.python2');   // ειδοποιήσεις «χέρι σηκωμένο»
+    // ειδοποιήσεις «χέρι σηκωμένο»· στο dev άλλο ID, αλλιώς τα Windows ταυτίζουν το node_modules\electron.exe με την εγκατεστημένη εφαρμογή
+    if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'gr.epal.python2' : 'gr.epal.python2.dev');
     loadSettings();
     refreshMenu();
     createWindow();
