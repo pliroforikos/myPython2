@@ -70,6 +70,7 @@ class _State(object):
     last_input = None
     sources = {}            # όνομα αρχείου (bytes) -> λίστα unicode γραμμών
     star_modules = set()    # modules από `from X import *`
+    data = None             # γραμμές του αρχείου δεδομένων (λίστα unicode) ή None
 
 
 S = _State()
@@ -227,6 +228,14 @@ class InStream(object):
         return S.encoding
 
     def readline(self, size=-1):
+        if S.data:
+            line = S.data.pop(0)
+            if line != u'?':
+                # η τιμή εμφανίζεται στο Shell σαν να πληκτρολογήθηκε (με πλάγια γράμματα)
+                OUTPUT.add('data', line + u'\n')
+                S.last_input = line
+                return (line + u'\n').encode(S.encoding, 'replace')
+            # «?» στο αρχείο: αυτή η τιμή δίνεται από το πληκτρολόγιο
         LIVE.send(sys._getframe())
         send({'type': 'input_request'})
         msg = wait_cmd(('input',))
@@ -532,6 +541,40 @@ def function_signature(name, func):
     return u'%s(…)' % U.to_u(name)
 
 
+MAX_CELLS = 200     # στοιχεία λίστας που στέλνονται για τον πίνακα του πάνελ μεταβλητών
+MAX_COLS = 40
+
+
+def seq_view(v):
+    """Τα στοιχεία μιας λίστας/πλειάδας/λεξικού/συνόλου ξεχωριστά, για να τα δείξει το πάνελ ως πίνακα.
+    Λίστα από λίστες (ίδιου μήκους ή όχι) δίνει και 'grid' (δισδιάστατος πίνακας)."""
+    t = type(v)
+    if t in (list, tuple):
+        head = v[:MAX_CELLS]
+        view = {'items': [friendly_repr(x, 2) for x in head], 'more': len(v) > MAX_CELLS}
+        if head and all(type(x) in (list, tuple) for x in head):
+            width = max(len(r) for r in head)
+            if 0 < width <= MAX_COLS:
+                view['grid'] = [[friendly_repr(c, 3) for c in r] for r in head]
+                view['cols'] = width
+        return view
+    if t is dict:
+        pairs = []
+        for i, (k, x) in enumerate(v.items()):
+            if i >= MAX_CELLS:
+                break
+            pairs.append([friendly_repr(k, 2), friendly_repr(x, 2)])
+        return {'pairs': pairs, 'more': len(v) > MAX_CELLS}
+    if t in (set, frozenset):
+        items = []
+        for i, x in enumerate(v):
+            if i >= MAX_CELLS:
+                break
+            items.append(friendly_repr(x, 2))
+        return {'items': items, 'more': len(v) > MAX_CELLS}
+    return None
+
+
 def describe_globals(ns):
     hidden = _imported_names(ns)
     out = []
@@ -557,6 +600,13 @@ def describe_globals(ns):
         item = {'name': U.to_u(name), 'type': type(v).__name__, 'repr': friendly_repr(v)}
         if isinstance(v, (str, unicode, list, tuple, dict, set, frozenset)):
             item['len'] = len(v)
+        if type(v) in (list, tuple, dict, set, frozenset):
+            try:
+                view = seq_view(v)
+            except Exception:
+                view = None
+            if view:
+                item['seq'] = view
         out.append(item)
     return out
 
@@ -718,6 +768,17 @@ def setup_folder(folder_u):
         sys.meta_path.insert(0, StudentImporter(folder_u))
 
 
+def data_lines(text):
+    """Γραμμές ενός αρχείου δεδομένων: αγνοούνται οι κενές γραμμές και τα σχόλια (#).
+    Μια γραμμή με σκέτο «?» σημαίνει «σε αυτό το σημείο ρώτα τον χρήστη»."""
+    out = []
+    for raw in (text or u'').lstrip(u'\ufeff').splitlines():
+        line = raw.strip()
+        if line and not line.startswith(u'#'):
+            out.append(line)
+    return out
+
+
 def run_program(msg):
     path_u = msg.get('path') or u'<χωρίς όνομα>'
     text = msg.get('source', u'')
@@ -732,6 +793,15 @@ def run_program(msg):
     ns = make_namespace(S.prog_path_b)
     register_source(S.prog_path_b, text)
     send({'type': 'started', 'encoding': enc, 'reason': reason, 'cwd': os.getcwdu()})
+
+    # Αρχείο δεδομένων: { name, text } — οι raw_input/input παίρνουν πρώτα τις τιμές του, με τη σειρά
+    data = msg.get('data')
+    S.data = data_lines(data.get('text')) if data else None
+    if S.data is not None:
+        n = len([l for l in S.data if l != u'?'])
+        OUTPUT.add('info', u'📄 Οι raw_input/input παίρνουν τιμές από το αρχείο «%s» (%d %s). '
+                           u'Όταν τελειώσουν, οι τιμές δίνονται από το πληκτρολόγιο.\n'
+                   % (data.get('name') or u'', n, u'γραμμή' if n == 1 else u'γραμμές'))
 
     ok = False
     try:
@@ -763,6 +833,7 @@ def run_program(msg):
         finally:
             LIVE.stop()
             sys.settrace(None)
+    S.data = None   # στο Shell (>>>) οι τιμές ζητούνται πάντα από το πληκτρολόγιο
     _pump_tk()
     send({'type': 'done', 'ok': ok})
     send_globals(ns)

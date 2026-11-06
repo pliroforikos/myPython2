@@ -1,7 +1,7 @@
 {
   "name": "python2-epal",
   "productName": "Python 2.7 ΕΠΑΛ",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Φιλικό περιβάλλον προγραμματισμού Python 2.7 για μαθητές ΕΠΑΛ (τύπου Thonny)",
   "main": "src/main/main.js",
   "desktopName": "python2-epal.desktop",
@@ -16,6 +16,11 @@
   },
   "build": {
     "appId": "gr.epal.python2",
+    "publish": {
+      "provider": "github",
+      "owner": "pliroforikos",
+      "repo": "myPython2"
+    },
     "productName": "Python2-EPAL",
     "directories": {
       "output": "dist",
@@ -80,6 +85,7 @@
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "monaco-editor": "^0.52.2"
   },
   "devDependencies": {

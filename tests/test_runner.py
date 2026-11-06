@@ -73,10 +73,11 @@ class RunnerTest(unittest.TestCase):
         self.s.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def run_code(self, source, inputs=(), name='prog.py', encoding='cp1253'):
+    def run_code(self, source, inputs=(), name='prog.py', encoding='cp1253', data=None):
         path = os.path.join(self.tmp, name).decode(sys.getfilesystemencoding())
         self.path = path
-        self.s.send(cmd='run', path=path, source=source, encoding=encoding)
+        extra = {'data': data} if data is not None else {}
+        self.s.send(cmd='run', path=path, source=source, encoding=encoding, **extra)
         return self.s.until_prompt(inputs)
 
     def test_greek_print_and_len(self):
@@ -97,6 +98,44 @@ class RunnerTest(unittest.TestCase):
     def test_greek_input(self):
         self.run_code(u"x = raw_input()\nprint len(x), x\n", inputs=[u'Αμυγδαλιά'])
         self.assertEqual(self.s.output(), u'9 Αμυγδαλιά\n')
+
+    def test_data_file_feeds_input(self):
+        # αρχείο δεδομένων: σχόλια και κενές γραμμές αγνοούνται, οι τιμές δίνονται με τη σειρά
+        data = {'name': u'τιμές.txt', 'text': u'# σχόλιο\nΆννα Παππά\n\n10\n20\n'}
+        self.run_code(u"x = raw_input('Όνομα: ')\na = input()\nb = input()\nprint x, a + b\n", data=data)
+        self.assertEqual(self.s.output(), u'Όνομα: Άννα Παππά 30\n')
+        self.assertEqual(self.s.output('data'), u'Άννα Παππά\n10\n20\n')
+        info = self.s.output('info')
+        self.assertIn(u'τιμές.txt', info)
+        self.assertIn(u'3 γραμμές', info)
+        self.assertEqual([m for m in self.s.messages if m['type'] == 'input_request'], [])
+
+    def test_data_file_question_mark_and_end(self):
+        # «?» ζητά την τιμή από το πληκτρολόγιο· όταν τελειώσει το αρχείο, συνεχίζει το πληκτρολόγιο
+        data = {'name': u'd.txt', 'text': u'5\n?\n7\n'}
+        self.run_code(u"a = input()\nb = input()\nc = input()\nd = input()\nprint a, b, c, d\n",
+                      inputs=[u'6', u'8'], data=data)
+        self.assertEqual(self.s.output(), u'5 6 7 8\n')
+        req = [m for m in self.s.messages if m['type'] == 'input_request']
+        self.assertEqual(len(req), 2)
+        self.assertIn(u'2 γραμμές', self.s.output('info'))
+
+    def test_list_view_for_variables_panel(self):
+        self.run_code(u"names = ['Α', 'Β']\ngrid = [[1, 2, 3], [4, 5, 6]]\nd = {'k': 1}\nt = (7, 8)\nn = 3\n")
+        g = self.s.last_globals()
+        self.assertEqual(g['names']['seq']['items'], [u"'Α'", u"'Β'"])
+        self.assertEqual(g['grid']['seq']['grid'], [[u'1', u'2', u'3'], [u'4', u'5', u'6']])
+        self.assertEqual(g['grid']['seq']['cols'], 3)
+        self.assertEqual(g['d']['seq']['pairs'], [[u"'k'", u'1']])
+        self.assertEqual(g['t']['seq']['items'], [u'7', u'8'])
+        self.assertNotIn('seq', g['n'])
+
+    def test_long_list_view_is_capped(self):
+        self.run_code(u"big = range(1000)\n")
+        seq = self.s.last_globals()['big']['seq']
+        self.assertEqual(len(seq['items']), 200)
+        self.assertTrue(seq['more'])
+        self.assertEqual(self.s.last_globals()['big']['len'], 1000)
 
     def _globals_before(self, nth_input):
         """Οι τελευταίες μεταβλητές που στάλθηκαν πριν από το nth_input-οστό input_request (από 1)."""
